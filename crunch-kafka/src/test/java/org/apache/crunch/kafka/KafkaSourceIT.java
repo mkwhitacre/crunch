@@ -89,7 +89,6 @@ public class KafkaSourceIT {
     }
 
     @Test
-    @Ignore
     public void sourceReadData(){
         List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
         Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
@@ -112,21 +111,12 @@ public class KafkaSourceIT {
 
         PTable<String, String> read = pipeline.read(kafkaSource);
 
-        Path txtOutPath = path.getPath("kafkaout");
-
-        read.keys().parallelDo(IdentityFn.<String>getInstance(), Writables.strings()).write(To.textFile(txtOutPath));
-
-        pipeline.run();
-
-        PCollection<String> keysOnly = pipeline.read(From.textFile(txtOutPath));
-
-
         Set<String> keysRead = new HashSet<>();
         int numRecordsFound = 0;
-        for(String key: keysOnly.materialize()){
-            assertThat(keys, hasItem(key));
+        for(Pair<String, String> values: read.materialize()){
+            assertThat(keys, hasItem(values.first()));
             numRecordsFound++;
-            keysRead.add(key);
+            keysRead.add(values.first());
         }
 
         assertThat(numRecordsFound, is(keys.size()));
