@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -59,271 +59,271 @@ import static org.mockito.Mockito.when;
 @RunWith(MockitoJUnitRunner.class)
 public class KafkaInputFormatIT {
 
-    @Rule
-    public TestName testName = new TestName();
+  @Rule
+  public TestName testName = new TestName();
 
-    @Mock
-    private TaskAttemptContext taskContext;
+  @Mock
+  private TaskAttemptContext taskContext;
 
-    @Mock
-    private FormatBundle bundle;
-    private Properties consumerProps;
-    private Configuration config;
-    private String topic;
+  @Mock
+  private FormatBundle bundle;
+  private Properties consumerProps;
+  private Configuration config;
+  private String topic;
 
-    @BeforeClass
-    public static void setup() throws Exception {
-        ClusterTest.startTest();
+  @BeforeClass
+  public static void setup() throws Exception {
+    ClusterTest.startTest();
+  }
+
+  @AfterClass
+  public static void cleanup() throws Exception {
+    ClusterTest.endTest();
+  }
+
+  @Before
+  public void setupTest() {
+    topic = testName.getMethodName();
+    consumerProps = ClusterTest.getConsumerProperties();
+    config = ClusterTest.getConsumerConfig();
+  }
+
+  @Test
+  public void getSplitsFromFormat() throws IOException, InterruptedException {
+    List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
+    Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
+    Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      Long endingOffset = endOffsets.get(entry.getKey());
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
     }
 
-    @AfterClass
-    public static void cleanup() throws Exception {
-        ClusterTest.endTest();
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    KafkaInputFormat inputFormat = new KafkaInputFormat();
+    inputFormat.setConf(config);
+    List<InputSplit> splits = inputFormat.getSplits(null);
+
+    assertThat(splits.size(), is(offsets.size()));
+
+    for (InputSplit split : splits) {
+      KafkaInputSplit inputSplit = (KafkaInputSplit) split;
+      Pair<Long, Long> startEnd = offsets.get(inputSplit.getTopicPartition());
+      assertThat(inputSplit.getStartingOffset(), is(startEnd.first()));
+      assertThat(inputSplit.getEndingOffset(), is(startEnd.second()));
+    }
+  }
+
+  @Test
+  public void getSplitsCreateReaders() throws IOException, InterruptedException {
+    List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
+    Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
+    Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      Long endingOffset = endOffsets.get(entry.getKey());
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
     }
 
-    @Before
-    public void setupTest(){
-        topic = testName.getMethodName();
-        consumerProps = ClusterTest.getConsumerProperties();
-        config = ClusterTest.getConsumerConfig();
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    KafkaInputFormat inputFormat = new KafkaInputFormat();
+    inputFormat.setConf(config);
+    List<InputSplit> splits = inputFormat.getSplits(null);
+
+    assertThat(splits.size(), is(offsets.size()));
+
+    for (InputSplit split : splits) {
+      KafkaInputSplit inputSplit = (KafkaInputSplit) split;
+      Pair<Long, Long> startEnd = offsets.get(inputSplit.getTopicPartition());
+      assertThat(inputSplit.getStartingOffset(), is(startEnd.first()));
+      assertThat(inputSplit.getEndingOffset(), is(startEnd.second()));
     }
 
-    @Test
-    public void getSplitsFromFormat() throws IOException, InterruptedException {
-        List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
-        Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
-        Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+    //create readers and consume the data
+    when(taskContext.getConfiguration()).thenReturn(config);
+    Set<String> keysRead = new HashSet<>();
+    //read all data from all splits
+    for (InputSplit split : splits) {
+      KafkaInputSplit inputSplit = (KafkaInputSplit) split;
+      long start = inputSplit.getStartingOffset();
+      long end = inputSplit.getEndingOffset();
 
-        Map<TopicPartition, Pair<Long,Long>> offsets = new HashMap<>();
-        for(Map.Entry<TopicPartition, Long> entry: startOffsets.entrySet()){
-            Long endingOffset = endOffsets.get(entry.getKey());
-            offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
-        }
+      RecordReader<String, String> recordReader = inputFormat.createRecordReader(split, taskContext);
+      recordReader.initialize(split, taskContext);
 
-        KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+      int numRecordsFound = 0;
+      while (recordReader.nextKeyValue()) {
+        keysRead.add(recordReader.getCurrentKey());
+        assertThat(keys, hasItem(recordReader.getCurrentKey()));
+        assertThat(recordReader.getCurrentValue(), is(notNullValue()));
+        numRecordsFound++;
+      }
+      recordReader.close();
 
-        KafkaInputFormat inputFormat = new KafkaInputFormat();
-        inputFormat.setConf(config);
-        List<InputSplit> splits = inputFormat.getSplits(null);
-
-        assertThat(splits.size(), is(offsets.size()));
-
-        for(InputSplit split: splits){
-            KafkaInputSplit inputSplit = (KafkaInputSplit) split;
-            Pair<Long, Long> startEnd = offsets.get(inputSplit.getTopicPartition());
-            assertThat(inputSplit.getStartingOffset(), is(startEnd.first()));
-            assertThat(inputSplit.getEndingOffset(), is(startEnd.second()));
-        }
+      //assert that it encountered a partitions worth of data
+      assertThat(((long) numRecordsFound), is(end - start));
     }
 
-    @Test
-    public void getSplitsCreateReaders() throws IOException, InterruptedException {
-        List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
-        Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
-        Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+    //validate the same number of unique keys was read as were written.
+    assertThat(keysRead.size(), is(keys.size()));
+  }
 
-        Map<TopicPartition, Pair<Long,Long>> offsets = new HashMap<>();
-        for(Map.Entry<TopicPartition, Long> entry: startOffsets.entrySet()){
-            Long endingOffset = endOffsets.get(entry.getKey());
-            offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
-        }
-
-        KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
-
-        KafkaInputFormat inputFormat = new KafkaInputFormat();
-        inputFormat.setConf(config);
-        List<InputSplit> splits = inputFormat.getSplits(null);
-
-        assertThat(splits.size(), is(offsets.size()));
-
-        for(InputSplit split: splits){
-            KafkaInputSplit inputSplit = (KafkaInputSplit) split;
-            Pair<Long, Long> startEnd = offsets.get(inputSplit.getTopicPartition());
-            assertThat(inputSplit.getStartingOffset(), is(startEnd.first()));
-            assertThat(inputSplit.getEndingOffset(), is(startEnd.second()));
-        }
-
-        //create readers and consume the data
-        when(taskContext.getConfiguration()).thenReturn(config);
-        Set<String> keysRead = new HashSet<>();
-        //read all data from all splits
-        for(InputSplit split: splits) {
-            KafkaInputSplit inputSplit = (KafkaInputSplit) split;
-            long start = inputSplit.getStartingOffset();
-            long end = inputSplit.getEndingOffset();
-
-            RecordReader<String, String> recordReader = inputFormat.createRecordReader(split, taskContext);
-            recordReader.initialize(split, taskContext);
-
-            int numRecordsFound = 0;
-            while (recordReader.nextKeyValue()) {
-                keysRead.add(recordReader.getCurrentKey());
-                assertThat(keys, hasItem(recordReader.getCurrentKey()));
-                assertThat(recordReader.getCurrentValue(), is(notNullValue()));
-                numRecordsFound++;
-            }
-            recordReader.close();
-
-            //assert that it encountered a partitions worth of data
-            assertThat(((long) numRecordsFound), is(end - start));
-        }
-
-        //validate the same number of unique keys was read as were written.
-        assertThat(keysRead.size(), is(keys.size()));
+  @Test
+  public void writeOffsetsToFormatBundle() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    String topic = testName.getMethodName();
+    int numPartitions = 10;
+    for (int i = 0; i < numPartitions; i++) {
+      TopicPartition tAndP = new TopicPartition(topic, i);
+      offsets.put(tAndP, Pair.of((long) i, i * 10L));
     }
 
-    @Test
-    public void writeOffsetsToFormatBundle(){
-        Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
-        String topic = testName.getMethodName();
-        int numPartitions = 10;
-        for(int i = 0;i < numPartitions; i++ ){
-            TopicPartition tAndP = new TopicPartition(topic, i);
-            offsets.put(tAndP, Pair.of((long) i, i*10L));
-        }
+    KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
 
-        KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
+    ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
 
-        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
+    //number of Partitions * 2 for start and end + 1 for the topic
+    verify(bundle, times((numPartitions * 2) + 1)).set(keyCaptor.capture(), valueCaptor.capture());
 
-        //number of Partitions * 2 for start and end + 1 for the topic
-        verify(bundle, times((numPartitions*2)+1)).set(keyCaptor.capture(), valueCaptor.capture());
+    List<String> keyValues = keyCaptor.getAllValues();
+    List<String> valueValues = valueCaptor.getAllValues();
 
-        List<String> keyValues = keyCaptor.getAllValues();
-        List<String> valueValues = valueCaptor.getAllValues();
+    String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
+    assertThat(keyValues, hasItem(partitionKey));
 
-        String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
-        assertThat(keyValues, hasItem(partitionKey));
+    String partitions = valueValues.get(keyValues.indexOf(partitionKey));
+    List<String> parts = Arrays.asList(partitions.split(","));
 
-        String partitions = valueValues.get(keyValues.indexOf(partitionKey));
-        List<String> parts = Arrays.asList(partitions.split(","));
+    for (int i = 0; i < numPartitions; i++) {
+      assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
+      String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
+      String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
+      assertThat(keyValues, hasItem(startKey));
+      assertThat(keyValues, hasItem(endKey));
+      assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
+      assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i * 10L)));
+      assertThat(parts, hasItem(Long.toString(i)));
+    }
+  }
 
-        for(int i = 0; i < numPartitions; i++) {
-            assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
-            String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
-            String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
-            assertThat(keyValues, hasItem(startKey));
-            assertThat(keyValues, hasItem(endKey));
-            assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
-            assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i*10L)));
-            assertThat(parts, hasItem(Long.toString(i)));
-        }
+  @Test
+  public void writeOffsetsToFormatBundleSpecialCharacters() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    String topic = "partitions." + testName.getMethodName();
+    int numPartitions = 10;
+    for (int i = 0; i < numPartitions; i++) {
+      TopicPartition tAndP = new TopicPartition(topic, i);
+      offsets.put(tAndP, Pair.of((long) i, i * 10L));
     }
 
-    @Test
-    public void writeOffsetsToFormatBundleSpecialCharacters(){
-        Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
-        String topic = "partitions."+testName.getMethodName();
-        int numPartitions = 10;
-        for(int i = 0;i < numPartitions; i++ ){
-            TopicPartition tAndP = new TopicPartition(topic, i);
-            offsets.put(tAndP, Pair.of((long) i, i*10L));
-        }
+    KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
 
-        KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
+    ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
 
-        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
+    //number of Partitions * 2 for start and end + 1 for the topic
+    verify(bundle, times((numPartitions * 2) + 1)).set(keyCaptor.capture(), valueCaptor.capture());
 
-        //number of Partitions * 2 for start and end + 1 for the topic
-        verify(bundle, times((numPartitions*2)+1)).set(keyCaptor.capture(), valueCaptor.capture());
+    List<String> keyValues = keyCaptor.getAllValues();
+    List<String> valueValues = valueCaptor.getAllValues();
 
-        List<String> keyValues = keyCaptor.getAllValues();
-        List<String> valueValues = valueCaptor.getAllValues();
+    String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
+    assertThat(keyValues, hasItem(partitionKey));
 
-        String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
-        assertThat(keyValues, hasItem(partitionKey));
+    String partitions = valueValues.get(keyValues.indexOf(partitionKey));
+    List<String> parts = Arrays.asList(partitions.split(","));
 
-        String partitions = valueValues.get(keyValues.indexOf(partitionKey));
-        List<String> parts = Arrays.asList(partitions.split(","));
+    for (int i = 0; i < numPartitions; i++) {
+      assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
+      String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
+      String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
+      assertThat(keyValues, hasItem(startKey));
+      assertThat(keyValues, hasItem(endKey));
+      assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
+      assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i * 10L)));
+      assertThat(parts, hasItem(Long.toString(i)));
+    }
+  }
 
-        for(int i = 0; i < numPartitions; i++) {
-            assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
-            String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
-            String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
-            assertThat(keyValues, hasItem(startKey));
-            assertThat(keyValues, hasItem(endKey));
-            assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
-            assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i*10L)));
-            assertThat(parts, hasItem(Long.toString(i)));
-        }
+  @Test
+  public void writeOffsetsToFormatBundleMultipleTopics() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    Set<String> topics = new HashSet<>();
+
+    int numPartitions = 10;
+    int numTopics = 10;
+    for (int j = 0; j < numTopics; j++) {
+      String topic = testName.getMethodName() + j;
+      topics.add(topic);
+      for (int i = 0; i < numPartitions; i++) {
+        TopicPartition tAndP = new TopicPartition(topic, i);
+        offsets.put(tAndP, Pair.of((long) i, i * 10L));
+      }
     }
 
-    @Test
-    public void writeOffsetsToFormatBundleMultipleTopics(){
-        Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
-        Set<String> topics = new HashSet<>();
+    KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
 
-        int numPartitions = 10;
-        int numTopics = 10;
-        for(int j = 0; j < numTopics; j++) {
-            String topic = testName.getMethodName()+j;
-            topics.add(topic);
-            for (int i = 0; i < numPartitions; i++) {
-                TopicPartition tAndP = new TopicPartition(topic, i);
-                offsets.put(tAndP, Pair.of((long) i, i * 10L));
-            }
-        }
+    ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
 
-        KafkaInputFormat.writeOffsetsToBundle(offsets, bundle);
+    //number of Partitions * 2 for start and end + num of topics
+    verify(bundle, times((numTopics * numPartitions * 2) + numTopics)).set(keyCaptor.capture(), valueCaptor.capture());
 
-        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> valueCaptor = ArgumentCaptor.forClass(String.class);
+    List<String> keyValues = keyCaptor.getAllValues();
+    List<String> valueValues = valueCaptor.getAllValues();
 
-        //number of Partitions * 2 for start and end + num of topics
-        verify(bundle, times((numTopics*numPartitions*2)+numTopics)).set(keyCaptor.capture(), valueCaptor.capture());
+    for (String topic : topics) {
 
-        List<String> keyValues = keyCaptor.getAllValues();
-        List<String> valueValues = valueCaptor.getAllValues();
+      String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
+      assertThat(keyValues, hasItem(partitionKey));
 
-        for(String topic: topics) {
+      String partitions = valueValues.get(keyValues.indexOf(partitionKey));
+      List<String> parts = Arrays.asList(partitions.split(","));
 
-            String partitionKey = KafkaInputFormat.generateTopicPartitionsKey(topic);
-            assertThat(keyValues, hasItem(partitionKey));
+      for (int i = 0; i < numPartitions; i++) {
+        assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
+        String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
+        String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
+        assertThat(keyValues, hasItem(startKey));
+        assertThat(keyValues, hasItem(endKey));
+        assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
+        assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i * 10L)));
+        assertThat(parts, hasItem(Long.toString(i)));
+      }
+    }
+  }
 
-            String partitions = valueValues.get(keyValues.indexOf(partitionKey));
-            List<String> parts = Arrays.asList(partitions.split(","));
+  @Test
+  public void getOffsetsFromConfig() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    Set<String> topics = new HashSet<>();
 
-            for (int i = 0; i < numPartitions; i++) {
-                assertThat(keyValues, hasItem(KafkaInputFormat.generateTopicPartitionsKey(topic)));
-                String startKey = KafkaInputFormat.generatePartitionStartKey(topic, i);
-                String endKey = KafkaInputFormat.generatePartitionEndKey(topic, i);
-                assertThat(keyValues, hasItem(startKey));
-                assertThat(keyValues, hasItem(endKey));
-                assertThat(valueValues.get(keyValues.indexOf(startKey)), is(Long.toString(i)));
-                assertThat(valueValues.get(keyValues.indexOf(endKey)), is(Long.toString(i * 10L)));
-                assertThat(parts, hasItem(Long.toString(i)));
-            }
-        }
+    int numPartitions = 10;
+    int numTopics = 10;
+    for (int j = 0; j < numTopics; j++) {
+      String topic = testName.getMethodName() + ".partitions" + j;
+      topics.add(topic);
+      for (int i = 0; i < numPartitions; i++) {
+        TopicPartition tAndP = new TopicPartition(topic, i);
+        offsets.put(tAndP, Pair.of((long) i, i * 10L));
+      }
     }
 
-    @Test
-    public void getOffsetsFromConfig(){
-        Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
-        Set<String> topics = new HashSet<>();
+    Configuration config = new Configuration(false);
 
-        int numPartitions = 10;
-        int numTopics = 10;
-        for(int j = 0; j < numTopics; j++) {
-            String topic = testName.getMethodName()+".partitions"+j;
-            topics.add(topic);
-            for (int i = 0; i < numPartitions; i++) {
-                TopicPartition tAndP = new TopicPartition(topic, i);
-                offsets.put(tAndP, Pair.of((long) i, i * 10L));
-            }
-        }
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
 
-        Configuration config = new Configuration(false);
+    Map<TopicPartition, Pair<Long, Long>> returnedOffsets = KafkaInputFormat.getOffsets(config);
 
-        KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
-
-        Map<TopicPartition, Pair<Long, Long>> returnedOffsets = KafkaInputFormat.getOffsets(config);
-
-        assertThat(returnedOffsets.size(), is(returnedOffsets.size()));
-        for(Map.Entry<TopicPartition, Pair<Long,Long>> entry: offsets.entrySet()){
-            Pair<Long, Long> valuePair = returnedOffsets.get(entry.getKey());
-            assertThat(valuePair, is(entry.getValue()));
-        }
+    assertThat(returnedOffsets.size(), is(returnedOffsets.size()));
+    for (Map.Entry<TopicPartition, Pair<Long, Long>> entry : offsets.entrySet()) {
+      Pair<Long, Long> valuePair = returnedOffsets.get(entry.getKey());
+      assertThat(valuePair, is(entry.getValue()));
     }
+  }
 }

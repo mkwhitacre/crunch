@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -51,72 +51,72 @@ import static org.mockito.Mockito.when;
 @RunWith(MockitoJUnitRunner.class)
 public class KafkaRecordReaderIT {
 
-    @Mock
-    private TaskAttemptContext context;
+  @Mock
+  private TaskAttemptContext context;
 
-    @Rule
-    public TestName testName = new TestName();
-    private Properties consumerProps;
-    private Configuration config;
+  @Rule
+  public TestName testName = new TestName();
+  private Properties consumerProps;
+  private Configuration config;
 
-    @BeforeClass
-    public static void setup() throws Exception {
-        ClusterTest.startTest();
+  @BeforeClass
+  public static void setup() throws Exception {
+    ClusterTest.startTest();
+  }
+
+  @AfterClass
+  public static void cleanup() throws Exception {
+    ClusterTest.endTest();
+  }
+
+  private String topic;
+
+  @Before
+  public void setupTest() {
+    topic = testName.getMethodName();
+    consumerProps = ClusterTest.getConsumerProperties();
+    config = ClusterTest.getConsumerConfig();
+    when(context.getConfiguration()).thenReturn(config);
+  }
+
+  @Test
+  public void readData() throws IOException, InterruptedException {
+    List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
+
+    Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
+    Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      Long endingOffset = endOffsets.get(entry.getKey());
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
     }
 
-    @AfterClass
-    public static void cleanup() throws Exception {
-        ClusterTest.endTest();
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    Set<String> keysRead = new HashSet<>();
+    //read all data from all splits
+    for (Map.Entry<TopicPartition, Pair<Long, Long>> partitionInfo : offsets.entrySet()) {
+      KafkaInputSplit split = new KafkaInputSplit(partitionInfo.getKey().topic(), partitionInfo.getKey().partition(),
+          partitionInfo.getValue().first(), partitionInfo.getValue().second());
+
+      KafkaRecordReader<String, String> recordReader = new KafkaRecordReader<>();
+      recordReader.initialize(split, context);
+
+      int numRecordsFound = 0;
+      while (recordReader.nextKeyValue()) {
+        keysRead.add(recordReader.getCurrentKey());
+        assertThat(keys, hasItem(recordReader.getCurrentKey()));
+        assertThat(recordReader.getCurrentValue(), is(notNullValue()));
+        numRecordsFound++;
+      }
+      recordReader.close();
+
+      //assert that it encountered a partitions worth of data
+      assertThat(((long) numRecordsFound), is(partitionInfo.getValue().second() - partitionInfo.getValue().first()));
     }
 
-    private String topic;
-
-    @Before
-    public void setupTest(){
-        topic = testName.getMethodName();
-        consumerProps = ClusterTest.getConsumerProperties();
-        config = ClusterTest.getConsumerConfig();
-        when(context.getConfiguration()).thenReturn(config);
-    }
-
-    @Test
-    public void readData() throws IOException, InterruptedException {
-        List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
-
-        Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
-        Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
-
-        Map<TopicPartition, Pair<Long,Long>> offsets = new HashMap<>();
-        for(Map.Entry<TopicPartition, Long> entry: startOffsets.entrySet()){
-            Long endingOffset = endOffsets.get(entry.getKey());
-            offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
-        }
-
-        KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
-
-        Set<String> keysRead = new HashSet<>();
-        //read all data from all splits
-        for(Map.Entry<TopicPartition, Pair<Long, Long>> partitionInfo: offsets.entrySet()) {
-            KafkaInputSplit split = new KafkaInputSplit(partitionInfo.getKey().topic(), partitionInfo.getKey().partition(),
-                    partitionInfo.getValue().first(), partitionInfo.getValue().second());
-
-            KafkaRecordReader<String, String> recordReader = new KafkaRecordReader<>();
-            recordReader.initialize(split, context);
-
-            int numRecordsFound = 0;
-            while (recordReader.nextKeyValue()) {
-                keysRead.add(recordReader.getCurrentKey());
-                assertThat(keys, hasItem(recordReader.getCurrentKey()));
-                assertThat(recordReader.getCurrentValue(), is(notNullValue()));
-                numRecordsFound++;
-            }
-            recordReader.close();
-
-            //assert that it encountered a partitions worth of data
-            assertThat(((long) numRecordsFound), is(partitionInfo.getValue().second() - partitionInfo.getValue().first()));
-        }
-
-        //validate the same number of unique keys was read as were written.
-        assertThat(keysRead.size(), is(keys.size()));
-    }
+    //validate the same number of unique keys was read as were written.
+    assertThat(keysRead.size(), is(keys.size()));
+  }
 }

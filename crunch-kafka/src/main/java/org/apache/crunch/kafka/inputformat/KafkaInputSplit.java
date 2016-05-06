@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,65 +27,70 @@ import java.io.IOException;
 
 public class KafkaInputSplit extends InputSplit implements Writable {
 
-    private String topic;
-    private int partition;
-    private long startingOffset;
-    private long endingOffset;
-    private transient TopicPartition topicPartition;
+  private String topic;
+  private int partition;
+  private long startingOffset;
+  private long endingOffset;
+  private transient TopicPartition topicPartition;
 
-    public KafkaInputSplit(){
+  public KafkaInputSplit() {
 
+  }
+
+  public KafkaInputSplit(String topic, int partition, long startingOffset, long endingOffset) {
+    this.topic = topic;
+    this.partition = partition;
+    this.startingOffset = startingOffset;
+    this.endingOffset = endingOffset;
+    topicPartition = new TopicPartition(topic, partition);
+  }
+
+  @Override
+  public long getLength() throws IOException, InterruptedException {
+    return startingOffset > 0 ? endingOffset - startingOffset : endingOffset;
+  }
+
+  @Override
+  public String[] getLocations() throws IOException, InterruptedException {
+    //Leave empty since data locality not really an issues.
+    return new String[0];
+  }
+
+  public TopicPartition getTopicPartition() {
+    if (topicPartition == null) {
+      topicPartition = new TopicPartition(topic, partition);
     }
+    return topicPartition;
+  }
 
-    public KafkaInputSplit(String topic, int partition, long startingOffset, long endingOffset){
-        this.topic = topic;
-        this.partition = partition;
-        this.startingOffset = startingOffset;
-        this.endingOffset = endingOffset;
-        topicPartition = new TopicPartition(topic, partition);
-    }
+  public long getStartingOffset() {
+    return startingOffset;
+  }
 
-    @Override
-    public long getLength() throws IOException, InterruptedException {
-        return startingOffset > 0 ? endingOffset - startingOffset : endingOffset;
-    }
+  public long getEndingOffset() {
+    return endingOffset;
+  }
 
-    @Override
-    public String[] getLocations() throws IOException, InterruptedException {
-        //Leave empty since data locality not really an issues.
-        return new String[0];
-    }
+  @Override
+  public void write(DataOutput dataOutput) throws IOException {
+    dataOutput.writeUTF(topic);
+    dataOutput.writeInt(partition);
+    dataOutput.writeLong(startingOffset);
+    dataOutput.writeLong(endingOffset);
+  }
 
-    public TopicPartition getTopicPartition(){
-        if(topicPartition == null){
-            topicPartition = new TopicPartition(topic, partition);
-        }
-        return topicPartition;
-    }
+  @Override
+  public void readFields(DataInput dataInput) throws IOException {
+    topic = dataInput.readUTF();
+    partition = dataInput.readInt();
+    startingOffset = dataInput.readLong();
+    endingOffset = dataInput.readLong();
 
-    public long getStartingOffset(){
-        return startingOffset;
-    }
+    topicPartition = new TopicPartition(topic, partition);
+  }
 
-    public long getEndingOffset(){
-        return endingOffset;
-    }
-
-    @Override
-    public void write(DataOutput dataOutput) throws IOException {
-        dataOutput.writeUTF(topic);
-        dataOutput.writeInt(partition);
-        dataOutput.writeLong(startingOffset);
-        dataOutput.writeLong(endingOffset);
-    }
-
-    @Override
-    public void readFields(DataInput dataInput) throws IOException {
-        topic = dataInput.readUTF();
-        partition = dataInput.readInt();
-        startingOffset = dataInput.readLong();
-        endingOffset = dataInput.readLong();
-
-        topicPartition = new TopicPartition(topic, partition);
-    }
+  @Override
+  public String toString() {
+    return getTopicPartition() + " Start: " + startingOffset + " End: " + endingOffset;
+  }
 }

@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -34,66 +34,66 @@ import static org.apache.crunch.kafka.inputformat.KafkaUtils.getKafkaConnectionP
 
 public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
-    public static final String CONSUMER_POLL_TIMEOUT_KEY = "org.apache.crunch.kafka.consumer.poll.timeout";
-    public static final long CONSUMER_POLL_TIMEOUT_DEFAULT = 1000L;
+  public static final String CONSUMER_POLL_TIMEOUT_KEY = "org.apache.crunch.kafka.consumer.poll.timeout";
+  public static final long CONSUMER_POLL_TIMEOUT_DEFAULT = 1000L;
 
-    private Consumer<K,V> consumer;
-    private ConsumerRecord<K,V> record;
-    private long endingOffset;
-    private Iterator<ConsumerRecord<K,V>> recordIterator;
-    private long currentOffset;
-    private long consumerPollTimeout;
+  private Consumer<K, V> consumer;
+  private ConsumerRecord<K, V> record;
+  private long endingOffset;
+  private Iterator<ConsumerRecord<K, V>> recordIterator;
+  private long currentOffset;
+  private long consumerPollTimeout;
 
-    @Override
-    public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
-        consumer = new KafkaConsumer<>(getKafkaConnectionProperties(taskAttemptContext.getConfiguration()));
-        KafkaInputSplit split = (KafkaInputSplit) inputSplit;
-        TopicPartition topicPartition = split.getTopicPartition();
-        consumer.assign(Collections.singletonList(topicPartition));
-        //suggested hack to gather info without gathering data
-        consumer.poll(0);
-        //now seek to the desired start location
-        consumer.seek(topicPartition, split.getStartingOffset());
-        endingOffset = split.getEndingOffset();
+  @Override
+  public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
+    consumer = new KafkaConsumer<>(getKafkaConnectionProperties(taskAttemptContext.getConfiguration()));
+    KafkaInputSplit split = (KafkaInputSplit) inputSplit;
+    TopicPartition topicPartition = split.getTopicPartition();
+    consumer.assign(Collections.singletonList(topicPartition));
+    //suggested hack to gather info without gathering data
+    consumer.poll(0);
+    //now seek to the desired start location
+    consumer.seek(topicPartition, split.getStartingOffset());
+    endingOffset = split.getEndingOffset();
 
-        consumerPollTimeout = taskAttemptContext.getConfiguration()
-                .getLong(CONSUMER_POLL_TIMEOUT_KEY, CONSUMER_POLL_TIMEOUT_DEFAULT);
+    consumerPollTimeout = taskAttemptContext.getConfiguration()
+        .getLong(CONSUMER_POLL_TIMEOUT_KEY, CONSUMER_POLL_TIMEOUT_DEFAULT);
+  }
+
+  @Override
+  public boolean nextKeyValue() throws IOException, InterruptedException {
+    recordIterator = getRecords();
+    record = recordIterator.hasNext() ? recordIterator.next() : null;
+    return record != null && record.offset() < endingOffset;
+  }
+
+  @Override
+  public K getCurrentKey() throws IOException, InterruptedException {
+    return record.key();
+  }
+
+  @Override
+  public V getCurrentValue() throws IOException, InterruptedException {
+    return record.value();
+  }
+
+  @Override
+  public float getProgress() throws IOException, InterruptedException {
+    //not most accurate but gives reasonable estimate
+    return record.offset() / endingOffset;
+  }
+
+  private Iterator<ConsumerRecord<K, V>> getRecords() {
+    if (recordIterator == null || !recordIterator.hasNext()) {
+      ConsumerRecords<K, V> records = null;
+      records = consumer.poll(consumerPollTimeout);
+      return records != null ? records.iterator() : ConsumerRecords.<K, V>empty().iterator();
     }
+    return recordIterator;
+  }
 
-    @Override
-    public boolean nextKeyValue() throws IOException, InterruptedException {
-        recordIterator  = getRecords();
-        record = recordIterator.hasNext() ? recordIterator.next() : null;
-        return record != null && record.offset() < endingOffset;
-    }
-
-    @Override
-    public K getCurrentKey() throws IOException, InterruptedException {
-        return record.key();
-    }
-
-    @Override
-    public V getCurrentValue() throws IOException, InterruptedException {
-        return record.value();
-    }
-
-    @Override
-    public float getProgress() throws IOException, InterruptedException {
-        //not most accurate but gives reasonable estimate
-        return record.offset()/endingOffset;
-    }
-
-    private Iterator<ConsumerRecord<K,V>> getRecords() {
-        if(recordIterator == null || !recordIterator.hasNext()) {
-            ConsumerRecords<K,V> records = null;
-            records = consumer.poll(consumerPollTimeout);
-            return records != null ? records.iterator(): ConsumerRecords.<K,V>empty().iterator();
-        }
-        return recordIterator;
-    }
-
-    @Override
-    public void close() throws IOException {
-        consumer.close();
-    }
+  @Override
+  public void close() throws IOException {
+    consumer.close();
+  }
 }

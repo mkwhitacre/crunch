@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,6 +19,7 @@ package org.apache.crunch.kafka;
 
 import com.sun.corba.se.spi.ior.Writeable;
 import kafka.api.OffsetRequest;
+import org.apache.crunch.MapFn;
 import org.apache.crunch.PCollection;
 import org.apache.crunch.PTable;
 import org.apache.crunch.Pair;
@@ -61,70 +62,120 @@ import static org.junit.matchers.JUnitMatchers.hasItem;
 
 public class KafkaSourceIT {
 
-    @Rule
-    public TemporaryPath path = new TemporaryPath();
+  @Rule
+  public TemporaryPath path = new TemporaryPath();
 
-    @Rule
-    public TestName testName = new TestName();
+  @Rule
+  public TestName testName = new TestName();
 
-    private Properties consumerProps;
-    private Configuration config;
-    private String topic;
+  private Properties consumerProps;
+  private Configuration config;
+  private String topic;
 
-    @BeforeClass
-    public static void setup() throws Exception {
-        ClusterTest.startTest();
+  @BeforeClass
+  public static void setup() throws Exception {
+    ClusterTest.startTest();
+  }
+
+  @AfterClass
+  public static void cleanup() throws Exception {
+    ClusterTest.endTest();
+  }
+
+  @Before
+  public void setupTest() {
+    topic = testName.getMethodName();
+    consumerProps = ClusterTest.getConsumerProperties();
+    config = ClusterTest.getConsumerConfig();
+  }
+
+  @Test
+  public void sourceReadData() {
+    List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
+    Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
+    Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      Long endingOffset = endOffsets.get(entry.getKey());
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
     }
 
-    @AfterClass
-    public static void cleanup() throws Exception {
-        ClusterTest.endTest();
+    Configuration config = ClusterTest.getConf();
+
+    Pipeline pipeline = new MRPipeline(KafkaSourceIT.class, config);
+    pipeline.enableDebug();
+
+    TableSource<String, String> kafkaSource = new KafkaSource<>(consumerProps,
+        Avros.tableOf(Avros.strings(), Avros.strings()),
+        ClusterTest.StringSerDe.class, ClusterTest.StringSerDe.class, offsets);
+
+    PTable<String, String> read = pipeline.read(kafkaSource);
+
+    Set<String> keysRead = new HashSet<>();
+    int numRecordsFound = 0;
+    for (Pair<String, String> values : read.materialize()) {
+      assertThat(keys, hasItem(values.first()));
+      numRecordsFound++;
+      keysRead.add(values.first());
     }
 
-    @Before
-    public void setupTest(){
-        topic = testName.getMethodName();
-        consumerProps = ClusterTest.getConsumerProperties();
-        config = ClusterTest.getConsumerConfig();
+    assertThat(numRecordsFound, is(keys.size()));
+    assertThat(keysRead.size(), is(keys.size()));
+
+    pipeline.done();
+  }
+
+
+  @Test
+  @Ignore
+  public void sourceReadDataThroughPipeline() {
+    List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
+    Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
+    Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      Long endingOffset = endOffsets.get(entry.getKey());
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
     }
 
-    @Test
-    public void sourceReadData(){
-        List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
-        Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
-        Map<TopicPartition, Long> endOffsets = getBrokerOffsets(consumerProps, OffsetRequest.LatestTime(), topic);
+    Configuration config = ClusterTest.getConf();
 
-        Map<TopicPartition, Pair<Long,Long>> offsets = new HashMap<>();
-        for(Map.Entry<TopicPartition, Long> entry: startOffsets.entrySet()){
-            Long endingOffset = endOffsets.get(entry.getKey());
-            offsets.put(entry.getKey(), Pair.of(entry.getValue(), endingOffset));
-        }
+    Pipeline pipeline = new MRPipeline(KafkaSourceIT.class, config);
+    pipeline.enableDebug();
 
-        Configuration config = ClusterTest.getConf();
+    TableSource<String, String> kafkaSource = new KafkaSource<>(consumerProps,
+        Writables.tableOf(Writables.strings(), Writables.strings()),
+        ClusterTest.StringSerDe.class, ClusterTest.StringSerDe.class, offsets);
 
-        Pipeline pipeline = new MRPipeline(KafkaSourceIT.class, config);
-        pipeline.enableDebug();
+    PTable<String, String> read = pipeline.read(kafkaSource);
+    Path out = path.getPath("out");
+    read.parallelDo(new SimpleConvertFn(), Avros.strings()).write(To.textFile(out));
 
-        TableSource<String, String> kafkaSource = new KafkaSource<>(consumerProps,
-                Avros.tableOf(Avros.strings(), Avros.strings()),
-                ClusterTest.StringSerDe.class, ClusterTest.StringSerDe.class, offsets);
+    pipeline.run();
 
-        PTable<String, String> read = pipeline.read(kafkaSource);
+    PCollection<String> persistedKeys = pipeline.read(From.textFile(out));
 
-        Set<String> keysRead = new HashSet<>();
-        int numRecordsFound = 0;
-        for(Pair<String, String> values: read.materialize()){
-            assertThat(keys, hasItem(values.first()));
-            numRecordsFound++;
-            keysRead.add(values.first());
-        }
-
-        assertThat(numRecordsFound, is(keys.size()));
-        assertThat(keysRead.size(), is(keys.size()));
-
-        pipeline.done();
+    Set<String> keysRead = new HashSet<>();
+    int numRecordsFound = 0;
+    for (String value : persistedKeys.materialize()) {
+      assertThat(keys, hasItem(value));
+      numRecordsFound++;
+      keysRead.add(value);
     }
 
+    assertThat(numRecordsFound, is(keys.size()));
+    assertThat(keysRead.size(), is(keys.size()));
+
+    pipeline.done();
+  }
 
 
+  private static class SimpleConvertFn extends MapFn<Pair<String, String>, String> {
+    @Override
+    public String map(Pair<String, String> input) {
+      return input.first();
+    }
+  }
 }

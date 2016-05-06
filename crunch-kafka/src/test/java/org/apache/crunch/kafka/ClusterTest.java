@@ -27,6 +27,7 @@ import org.apache.crunch.impl.mr.run.RuntimeParameters;
 import org.apache.crunch.kafka.inputformat.KafkaInputFormatIT;
 import org.apache.crunch.kafka.inputformat.KafkaRecordReaderIT;
 import org.apache.crunch.kafka.inputformat.KafkaUtils;
+import org.apache.crunch.kafka.inputformat.KafkaUtilsIT;
 import org.apache.crunch.kafka.utils.KafkaBrokerTestHarness;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -47,170 +48,172 @@ import java.util.Properties;
 
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
-        //org.apache.crunch.kafka
-        KafkaSourceIT.class,
-        //org.apache.crunch.kafka.inputformat
-        KafkaRecordReaderIT.class, KafkaInputFormatIT.class,
+    //org.apache.crunch.kafka
+    KafkaSourceIT.class, KafkaRecordsIterableIT.class, KafkaDataIT.class,
+    //org.apache.crunch.kafka.inputformat
+    KafkaRecordReaderIT.class, KafkaInputFormatIT.class, KafkaUtilsIT.class,
 })
 public class ClusterTest {
 
 
-    private static TemporaryFolder folder = new TemporaryFolder();
-    private static KafkaBrokerTestHarness kafka;
-    private static boolean runAsSuite = false;
-    private static Configuration conf;
-    private static FileSystem fs;
+  private static TemporaryFolder folder = new TemporaryFolder();
+  private static KafkaBrokerTestHarness kafka;
+  private static boolean runAsSuite = false;
+  private static Configuration conf;
+  private static FileSystem fs;
 
-    @BeforeClass
-    public static void startSuite() throws Exception {
-        runAsSuite = true;
-        startKafka();
-        setupFileSystem();
+  @BeforeClass
+  public static void startSuite() throws Exception {
+    runAsSuite = true;
+    startKafka();
+    setupFileSystem();
+  }
+
+  @AfterClass
+  public static void endSuite() throws Exception {
+    stopKafka();
+  }
+
+  public static void startTest() throws Exception {
+    if (!runAsSuite) {
+      startKafka();
+      setupFileSystem();
     }
+  }
 
-    @AfterClass
-    public static void endSuite() throws Exception {
-        stopKafka();
+  public static void endTest() throws Exception {
+    if (!runAsSuite) {
+      stopKafka();
     }
+  }
 
-    public static void startTest() throws Exception {
-        if (!runAsSuite) {
-            startKafka();
-            setupFileSystem();
+  private static void stopKafka() throws IOException {
+    kafka.tearDown();
+  }
+
+  private static void startKafka() throws IOException {
+    Properties props = new Properties();
+    props.setProperty("auto.create.topics.enable", Boolean.TRUE.toString());
+
+    kafka = new KafkaBrokerTestHarness(props);
+    kafka.setUp();
+  }
+
+  private static void setupFileSystem() throws IOException {
+    folder.create();
+
+    conf = new Configuration();
+    conf.set(RuntimeParameters.TMP_DIR, folder.getRoot().getAbsolutePath());
+    // Run Map/Reduce tests in process.
+    conf.set("mapreduce.jobtracker.address", "local");
+  }
+
+  public static Configuration getConf() {
+    // Clone the configuration so it doesn't get modified for other tests.
+    return new Configuration(conf);
+  }
+
+  public static Properties getConsumerProperties() {
+    Properties props = new Properties();
+    props.putAll(kafka.getProps());
+    props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringSerDe.class.getName());
+    props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringSerDe.class.getName());
+    //set this because still needed by some APIs.
+    props.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, props.getProperty("metadata.broker.list"));
+    props.setProperty("enable.auto.commit", Boolean.toString(false));
+
+    //when set this causes some problems with initializing the consumer.
+    props.remove(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG);
+    return props;
+  }
+
+  public static Properties getProducerProperties() {
+    Properties props = new Properties();
+    props.putAll(kafka.getProps());
+    //set this because still needed by some APIs.
+    props.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, props.getProperty("metadata.broker.list"));
+    return props;
+  }
+
+  public static Configuration getConsumerConfig() {
+    Configuration kafkaConfig = new Configuration(conf);
+    KafkaUtils.addKafkaConnectionProperties(getConsumerProperties(), kafkaConfig);
+    return kafkaConfig;
+  }
+
+  public static List<String> writeData(Properties props, String topic, String batch, int loops, int numValuesPerLoop) {
+    Properties producerProps = new Properties();
+    producerProps.putAll(props);
+    producerProps.setProperty("serializer.class", StringEncoderDecoder.class.getName());
+    producerProps.setProperty("key.serializer.class", StringEncoderDecoder.class.getName());
+
+    // Set the default compression used to be snappy
+    producerProps.setProperty("compression.codec", "snappy");
+    producerProps.setProperty("request.required.acks", "1");
+
+    ProducerConfig producerConfig = new ProducerConfig(producerProps);
+
+    Producer<String, String> producer = new Producer<>(producerConfig);
+    List<String> keys = new LinkedList<>();
+    try {
+      for (int i = 0; i < loops; i++) {
+        List<KeyedMessage<String, String>> events = new LinkedList<>();
+        for (int j = 0; j < numValuesPerLoop; j++) {
+          String key = "key" + batch + i + j;
+          String value = "value" + batch + i + j;
+          keys.add(key);
+          events.add(new KeyedMessage<>(topic, key, value));
         }
+        producer.send(events);
+      }
+    } finally {
+      producer.close();
+    }
+    return keys;
+  }
+
+
+  public static class StringSerDe implements Serializer<String>, Deserializer<String> {
+
+    @Override
+    public void configure(Map map, boolean b) {
+
     }
 
-    public static void endTest() throws Exception {
-        if (!runAsSuite) {
-            stopKafka();
-        }
+    @Override
+    public byte[] serialize(String topic, String value) {
+      return value.getBytes();
     }
 
-    private static void stopKafka() throws IOException {
-        kafka.tearDown();
+    @Override
+    public String deserialize(String topic, byte[] bytes) {
+      return new String(bytes);
     }
 
-    private static void startKafka() throws IOException {
-        Properties props = new Properties();
-        props.setProperty("auto.create.topics.enable", Boolean.TRUE.toString());
+    @Override
+    public void close() {
 
-        kafka = new KafkaBrokerTestHarness(props);
-        kafka.setUp();
+    }
+  }
+
+  public static class StringEncoderDecoder implements Encoder<String>, Decoder<String> {
+
+    public StringEncoderDecoder() {
+
     }
 
-    private static void setupFileSystem() throws IOException {
-        folder.create();
+    public StringEncoderDecoder(VerifiableProperties props) {
 
-        conf = new Configuration();
-        conf.set(RuntimeParameters.TMP_DIR, folder.getRoot().getAbsolutePath());
-        // Run Map/Reduce tests in process.
-        conf.set("mapreduce.jobtracker.address", "local");
     }
 
-    public static Configuration getConf() {
-        // Clone the configuration so it doesn't get modified for other tests.
-        return new Configuration(conf);
+    @Override
+    public String fromBytes(byte[] bytes) {
+      return new String(bytes);
     }
 
-    public static Properties getConsumerProperties() {
-        Properties props = new Properties();
-        props.putAll(kafka.getProps());
-        props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringSerDe.class.getName());
-        props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringSerDe.class.getName());
-        //set this because still needed by some APIs.
-        props.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, props.getProperty("metadata.broker.list"));
-
-        //when set this causes some problems with initializing the consumer.
-        props.remove(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG);
-        return props;
+    @Override
+    public byte[] toBytes(String value) {
+      return value.getBytes();
     }
-
-    public static Properties getProducerProperties() {
-        Properties props = new Properties();
-        props.putAll(kafka.getProps());
-        //set this because still needed by some APIs.
-        props.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, props.getProperty("metadata.broker.list"));
-        return props;
-    }
-
-    public static Configuration getConsumerConfig(){
-        Configuration kafkaConfig = new Configuration(conf);
-        KafkaUtils.addKafkaConnectionProperties(getConsumerProperties(), kafkaConfig);
-        return kafkaConfig;
-    }
-
-    public static List<String> writeData(Properties props, String topic, String batch, int loops, int numValuesPerLoop){
-        Properties producerProps = new Properties();
-        producerProps.putAll(props);
-        producerProps.setProperty("serializer.class", StringEncoderDecoder.class.getName());
-        producerProps.setProperty("key.serializer.class", StringEncoderDecoder.class.getName());
-
-        // Set the default compression used to be snappy
-        producerProps.setProperty("compression.codec", "snappy");
-
-        ProducerConfig producerConfig = new ProducerConfig(producerProps);
-
-        Producer<String, String> producer = new Producer<>(producerConfig);
-        List<String> keys = new LinkedList<>();
-        try {
-            for(int i = 0; i < loops; i++){
-                List<KeyedMessage<String, String>> events = new LinkedList<>();
-                for(int j = 0; j < numValuesPerLoop; j++) {
-                    String key = "key"+batch+i+j;
-                    String value = "value"+batch+i+j;
-                    keys.add(key);
-                    events.add(new KeyedMessage<>(topic, key, value));
-                }
-                producer.send(events);
-            }
-        }finally {
-            producer.close();
-        }
-        return keys;
-    }
-
-
-    public static class StringSerDe implements Serializer<String>, Deserializer<String> {
-
-        @Override
-        public void configure(Map map, boolean b) {
-
-        }
-
-        @Override
-        public byte[] serialize(String topic, String value) {
-            return value.getBytes();
-        }
-
-        @Override
-        public String deserialize(String topic, byte[] bytes) {
-            return new String(bytes);
-        }
-
-        @Override
-        public void close() {
-
-        }
-    }
-
-    public static class StringEncoderDecoder implements Encoder<String>, Decoder<String> {
-
-        public StringEncoderDecoder(){
-
-        }
-
-        public StringEncoderDecoder(VerifiableProperties props){
-
-        }
-
-        @Override
-        public String fromBytes(byte[] bytes) {
-            return new String(bytes);
-        }
-
-        @Override
-        public byte[] toBytes(String value) {
-            return value.getBytes();
-        }
-    }
+  }
 }
