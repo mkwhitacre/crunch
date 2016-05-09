@@ -72,6 +72,7 @@ public class KafkaRecordsIterableIT {
   private Map<TopicPartition, Pair<Long, Long>> offsets;
   private Consumer<String, String> consumer;
   private Properties props;
+  private Properties consumerProps;
 
   @BeforeClass
   public static void init() throws Exception {
@@ -101,15 +102,12 @@ public class KafkaRecordsIterableIT {
     }
 
 
-    Properties consumerProps = new Properties();
+    consumerProps = new Properties();
     consumerProps.putAll(props);
-
-    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
   }
 
   @After
   public void shutdown() {
-    consumer.close();
   }
 
 
@@ -125,6 +123,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void emptyOffsets() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     Iterable<Pair<String, String>> data = new KafkaRecordsIterable<String, String>(consumer,
         Collections.<TopicPartition, Pair<Long, Long>>emptyMap(), new Properties());
     int count = 0;
@@ -141,6 +140,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void iterateOverValues() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     int loops = 10;
     int numPerLoop = 100;
     int total = loops * numPerLoop;
@@ -170,6 +170,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void iterateOverNothing() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     int loops = 10;
     int numPerLoop = 100;
     writeData(props, topic, "batch", loops, numPerLoop);
@@ -195,6 +196,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void iterateOverPartial() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     int loops = 10;
     int numPerLoop = 100;
     int numPerPartition = 50;
@@ -220,6 +222,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void dontIteratePastStop() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     int loops = 10;
     int numPerLoop = 100;
 
@@ -252,6 +255,7 @@ public class KafkaRecordsIterableIT {
 
   @Test
   public void iterateSkipInitialValues() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     int loops = 10;
     int numPerLoop = 100;
 

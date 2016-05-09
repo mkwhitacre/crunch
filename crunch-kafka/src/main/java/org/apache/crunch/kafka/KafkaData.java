@@ -57,7 +57,6 @@ public class KafkaData<K, V> implements ReadableData<Pair<K, V>> {
 
   @Override
   public Iterable<Pair<K, V>> read(TaskInputOutputContext<?, ?, ?, ?> context) throws IOException {
-    //TODO figure out how to close consumer
     Consumer<K, V> consumer = new KafkaConsumer<K, V>(props);
     return new KafkaRecordsIterable<>(consumer, offsets, props);
   }

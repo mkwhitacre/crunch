@@ -36,7 +36,6 @@ import java.util.Properties;
 import java.util.Set;
 
 
-//TODO could close consumer when all done with data but then this becomes single use.
 class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
 
   /**
@@ -230,6 +229,10 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
           LOG.debug("Value for {} with offset {} is outside of range skipping.", tP, offset);
         }
       }
+
+      LOG.debug("Closing the consumer because there are no more remaining partitions.");
+      consumer.close();
+
       LOG.debug("Consumed data from all partitions.");
       return null;
 
