@@ -34,37 +34,40 @@ import org.apache.crunch.kafka.inputformat.KafkaUtils;
 import org.apache.crunch.types.Converter;
 import org.apache.crunch.types.PTableType;
 import org.apache.crunch.types.PType;
+import org.apache.crunch.types.writable.Writables;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.serializer.Deserializer;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.Deserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.Properties;
 
-public class KafkaSource<K, V> implements TableSource<K, V>, ReadableSource<Pair<K, V>> {
+public class KafkaSource
+    implements TableSource<BytesWritable, BytesWritable>, ReadableSource<Pair<BytesWritable, BytesWritable>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(KafkaSource.class);
 
   private final FormatBundle inputBundle;
-  private final PTableType<K, V> type;
   private final Properties props;
   private final Map<TopicPartition, Pair<Long, Long>> offsets;
 
-  public KafkaSource(Properties kafkaConnectionProperties,
-                     PTableType<K, V> tableType,
-                     Class keyDeserializerClass,
-                     Class valueDeserializerClass,
-                     Map<TopicPartition, Pair<Long, Long>> offsets) {
-    this.type = tableType;
-    this.props = copyAndSetProperties(kafkaConnectionProperties, keyDeserializerClass, valueDeserializerClass);
+  private static PTableType<BytesWritable, BytesWritable> KAFKA_SOURCE_TYPE =
+      Writables.tableOf(Writables.writables(BytesWritable.class), Writables.writables(BytesWritable.class));
+
+
+  public KafkaSource(Properties kafkaConnectionProperties, Map<TopicPartition, Pair<Long, Long>> offsets) {
+    this.props = copyAndSetProperties(kafkaConnectionProperties);
 
     inputBundle = createFormatBundle(props, offsets);
 
@@ -72,24 +75,24 @@ public class KafkaSource<K, V> implements TableSource<K, V>, ReadableSource<Pair
   }
 
   @Override
-  public Source<Pair<K, V>> inputConf(String key, String value) {
+  public Source<Pair<BytesWritable, BytesWritable>> inputConf(String key, String value) {
     inputBundle.set(key, value);
     return this;
   }
 
   @Override
-  public PType<Pair<K, V>> getType() {
-    return type;
+  public PType<Pair<BytesWritable, BytesWritable>> getType() {
+    return KAFKA_SOURCE_TYPE;
   }
 
   @Override
   public Converter<?, ?, ?, ?> getConverter() {
-    return type.getConverter();
+    return KAFKA_SOURCE_TYPE.getConverter();
   }
 
   @Override
-  public PTableType<K, V> getTableType() {
-    return type;
+  public PTableType<BytesWritable, BytesWritable> getTableType() {
+    return KAFKA_SOURCE_TYPE;
   }
 
   @Override
@@ -118,14 +121,13 @@ public class KafkaSource<K, V> implements TableSource<K, V>, ReadableSource<Pair
     return bundle;
   }
 
-  private static <K, V> Properties copyAndSetProperties(Properties kakfaConnectionProperties, Class<? extends Deserializer<K>> keyDeserializerClass,
-                                                        Class<? extends Deserializer<V>> valueDeserializerClass) {
+  private static <K, V> Properties copyAndSetProperties(Properties kakfaConnectionProperties) {
 
     Properties props = new Properties();
     props.putAll(kakfaConnectionProperties);
 
-    props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, keyDeserializerClass.getName());
-    props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializerClass.getName());
+    props.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class.getName());
+    props.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, BytesDeserializer.class.getName());
 
 
     return props;
@@ -133,10 +135,10 @@ public class KafkaSource<K, V> implements TableSource<K, V>, ReadableSource<Pair
 
 
   @Override
-  public Iterable<Pair<K, V>> read(Configuration conf) throws IOException {
+  public Iterable<Pair<BytesWritable, BytesWritable>> read(Configuration conf) throws IOException {
     //TODO how to close this out?
-    Consumer<K, V> consumer = new KafkaConsumer<K, V>(props);
-    return new KafkaRecordsIterable<>(consumer, offsets, props);
+    Consumer<BytesWritable, BytesWritable> consumer = new KafkaConsumer<>(props);
+    return new KafkaRecordsIterable<BytesWritable, BytesWritable>(consumer, offsets, props);
   }
 
 
@@ -154,7 +156,26 @@ public class KafkaSource<K, V> implements TableSource<K, V>, ReadableSource<Pair
   }
 
   @Override
-  public ReadableData<Pair<K, V>> asReadable() {
+  public ReadableData<Pair<BytesWritable, BytesWritable>> asReadable() {
     return new KafkaData<>(props, offsets);
+  }
+
+
+  public static class BytesDeserializer implements Deserializer<BytesWritable> {
+
+    @Override
+    public void configure(Map<String, ?> map, boolean b) {
+
+    }
+
+    @Override
+    public BytesWritable deserialize(String s, byte[] bytes) {
+      return new BytesWritable(bytes);
+    }
+
+    @Override
+    public void close() {
+
+    }
   }
 }

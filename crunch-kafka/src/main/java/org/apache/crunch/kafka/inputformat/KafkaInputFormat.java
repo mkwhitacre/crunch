@@ -17,21 +17,18 @@
  */
 package org.apache.crunch.kafka.inputformat;
 
-import kafka.javaapi.OffsetRequest;
 import org.apache.commons.lang.StringUtils;
 import org.apache.crunch.Pair;
 import org.apache.crunch.io.FormatBundle;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.mapreduce.InputFormat;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.JobContext;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.Deserializer;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -39,10 +36,9 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 
-public class KafkaInputFormat<K, V> extends InputFormat<K, V> implements Configurable {
+public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> implements Configurable {
 
   private static final String KAFKA_INPUT_OFFSETS_BASE = "org.apache.crunch.kafka.offsets.topic";
   private static final String PARTITIONS = "partitions";
@@ -68,7 +64,7 @@ public class KafkaInputFormat<K, V> extends InputFormat<K, V> implements Configu
   }
 
   @Override
-  public RecordReader<K, V> createRecordReader(InputSplit inputSplit, TaskAttemptContext taskAttemptContext)
+  public RecordReader<BytesWritable, BytesWritable> createRecordReader(InputSplit inputSplit, TaskAttemptContext taskAttemptContext)
       throws IOException, InterruptedException {
     return new KafkaRecordReader<>();
   }

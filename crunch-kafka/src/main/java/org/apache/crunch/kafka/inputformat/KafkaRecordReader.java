@@ -80,7 +80,7 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
   @Override
   public float getProgress() throws IOException, InterruptedException {
     //not most accurate but gives reasonable estimate
-    return record.offset() / endingOffset;
+    return record == null ? 0.0f : record.offset() / endingOffset;
   }
 
   private Iterator<ConsumerRecord<K, V>> getRecords() {

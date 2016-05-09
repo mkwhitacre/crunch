@@ -35,6 +35,7 @@ import org.apache.crunch.types.avro.Avros;
 import org.apache.crunch.types.writable.Writables;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Deserializer;
@@ -106,18 +107,16 @@ public class KafkaSourceIT {
     Pipeline pipeline = new MRPipeline(KafkaSourceIT.class, config);
     pipeline.enableDebug();
 
-    TableSource<String, String> kafkaSource = new KafkaSource<>(consumerProps,
-        Avros.tableOf(Avros.strings(), Avros.strings()),
-        ClusterTest.StringSerDe.class, ClusterTest.StringSerDe.class, offsets);
+    TableSource<BytesWritable, BytesWritable> kafkaSource = new KafkaSource(consumerProps, offsets);
 
-    PTable<String, String> read = pipeline.read(kafkaSource);
+    PTable<BytesWritable, BytesWritable> read = pipeline.read(kafkaSource);
 
     Set<String> keysRead = new HashSet<>();
     int numRecordsFound = 0;
-    for (Pair<String, String> values : read.materialize()) {
-      assertThat(keys, hasItem(values.first()));
+    for (Pair<BytesWritable, BytesWritable> values : read.materialize()) {
+      assertThat(keys, hasItem(new String(values.first().getBytes())));
       numRecordsFound++;
-      keysRead.add(values.first());
+      keysRead.add(new String(values.first().getBytes()));
     }
 
     assertThat(numRecordsFound, is(keys.size()));
@@ -128,7 +127,6 @@ public class KafkaSourceIT {
 
 
   @Test
-  @Ignore
   public void sourceReadDataThroughPipeline() {
     List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
     Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
@@ -145,11 +143,9 @@ public class KafkaSourceIT {
     Pipeline pipeline = new MRPipeline(KafkaSourceIT.class, config);
     pipeline.enableDebug();
 
-    TableSource<String, String> kafkaSource = new KafkaSource<>(consumerProps,
-        Writables.tableOf(Writables.strings(), Writables.strings()),
-        ClusterTest.StringSerDe.class, ClusterTest.StringSerDe.class, offsets);
+    TableSource<BytesWritable, BytesWritable> kafkaSource = new KafkaSource(consumerProps, offsets);
 
-    PTable<String, String> read = pipeline.read(kafkaSource);
+    PTable<BytesWritable, BytesWritable> read = pipeline.read(kafkaSource);
     Path out = path.getPath("out");
     read.parallelDo(new SimpleConvertFn(), Avros.strings()).write(To.textFile(out));
 
@@ -172,10 +168,10 @@ public class KafkaSourceIT {
   }
 
 
-  private static class SimpleConvertFn extends MapFn<Pair<String, String>, String> {
+  private static class SimpleConvertFn extends MapFn<Pair<BytesWritable, BytesWritable>, String> {
     @Override
-    public String map(Pair<String, String> input) {
-      return input.first();
+    public String map(Pair<BytesWritable, BytesWritable> input) {
+      return new String(input.first().getBytes());
     }
   }
 }

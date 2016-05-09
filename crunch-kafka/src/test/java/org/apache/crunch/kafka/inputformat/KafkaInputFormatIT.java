@@ -22,10 +22,13 @@ import kafka.api.OffsetRequest;
 import org.apache.crunch.Pair;
 import org.apache.crunch.io.FormatBundle;
 import org.apache.crunch.kafka.ClusterTest;
+import org.apache.crunch.kafka.KafkaSource;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -85,7 +88,14 @@ public class KafkaInputFormatIT {
   public void setupTest() {
     topic = testName.getMethodName();
     consumerProps = ClusterTest.getConsumerProperties();
+
+    consumerProps.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaSource.BytesDeserializer.class.getName());
+    consumerProps.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaSource.BytesDeserializer.class.getName());
+
     config = ClusterTest.getConsumerConfig();
+
+    config.set(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaSource.BytesDeserializer.class.getName());
+    config.set(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaSource.BytesDeserializer.class.getName());
   }
 
   @Test
@@ -152,13 +162,13 @@ public class KafkaInputFormatIT {
       long start = inputSplit.getStartingOffset();
       long end = inputSplit.getEndingOffset();
 
-      RecordReader<String, String> recordReader = inputFormat.createRecordReader(split, taskContext);
+      RecordReader<BytesWritable, BytesWritable> recordReader = inputFormat.createRecordReader(split, taskContext);
       recordReader.initialize(split, taskContext);
 
       int numRecordsFound = 0;
       while (recordReader.nextKeyValue()) {
-        keysRead.add(recordReader.getCurrentKey());
-        assertThat(keys, hasItem(recordReader.getCurrentKey()));
+        keysRead.add(new String(recordReader.getCurrentKey().getBytes()));
+        assertThat(keys, hasItem(new String(recordReader.getCurrentKey().getBytes())));
         assertThat(recordReader.getCurrentValue(), is(notNullValue()));
         numRecordsFound++;
       }
