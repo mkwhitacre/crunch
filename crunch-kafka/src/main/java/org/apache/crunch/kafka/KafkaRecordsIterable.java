@@ -66,8 +66,8 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
   /**
    * Creates the iterable that will pull values for a given {@code topic} using the provided {@code consumer} between
    * the {@code startOffsets} and {@code stopOffsets}.
-   * @param consumer The consumer for pulling the data from Kafka.  Callers are responsible for managing the consumer
-   *                 instance.
+   * @param consumer The consumer for pulling the data from Kafka.  The consumer will be closed automatically once all
+   *                 of the records have been consumed.
    * @param offsets offsets for pulling data
    * @param properties properties for tweaking the behavior of the iterable.
    * @throws IllegalArgumentException if any of the arguments are {@code null} or empty.

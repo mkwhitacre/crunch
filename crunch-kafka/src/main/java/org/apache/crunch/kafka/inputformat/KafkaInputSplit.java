@@ -25,6 +25,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/**
+ * InputSplit that represent retrieving data from a single {@link TopicPartition} between the specified start
+ * and end offsets.
+ */
 public class KafkaInputSplit extends InputSplit implements Writable {
 
   private String topic;
@@ -37,6 +41,14 @@ public class KafkaInputSplit extends InputSplit implements Writable {
 
   }
 
+  /**
+   * Constructs an input split for the provided {@code topic} and {@code partition} restricting data to be between
+   * the {@code startingOffset} and {@code endingOffset}
+   * @param topic the topic for the split
+   * @param partition the partition for the topic
+   * @param startingOffset the start of the split
+   * @param endingOffset the end of the split
+   */
   public KafkaInputSplit(String topic, int partition, long startingOffset, long endingOffset) {
     this.topic = topic;
     this.partition = partition;

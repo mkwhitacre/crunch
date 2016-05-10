@@ -32,16 +32,27 @@ import java.util.Iterator;
 
 import static org.apache.crunch.kafka.inputformat.KafkaUtils.getKafkaConnectionProperties;
 
+/**
+ * A {@link RecordReader} for pulling data from Kafka.
+ * @param <K> the key of the records from Kafka
+ * @param <V> the value of the records from Kafka
+ */
 public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
+  /**
+   * Constant to indicate how long the reader wait before timing out when retrieving data from Kafka.
+   */
   public static final String CONSUMER_POLL_TIMEOUT_KEY = "org.apache.crunch.kafka.consumer.poll.timeout";
+
+  /**
+   * Default timeout value for {@link #CONSUMER_POLL_TIMEOUT_KEY} of 1 second.
+   */
   public static final long CONSUMER_POLL_TIMEOUT_DEFAULT = 1000L;
 
   private Consumer<K, V> consumer;
   private ConsumerRecord<K, V> record;
   private long endingOffset;
   private Iterator<ConsumerRecord<K, V>> recordIterator;
-  private long currentOffset;
   private long consumerPollTimeout;
 
   @Override

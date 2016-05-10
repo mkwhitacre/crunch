@@ -20,8 +20,6 @@ package org.apache.crunch.kafka;
 import org.apache.crunch.Pair;
 import org.apache.crunch.ReadableData;
 import org.apache.crunch.SourceTarget;
-import org.apache.crunch.kafka.inputformat.KafkaInputFormat;
-import org.apache.crunch.kafka.inputformat.KafkaUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.TaskInputOutputContext;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -33,7 +31,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
-public class KafkaData<K, V> implements ReadableData<Pair<K, V>> {
+class KafkaData<K, V> implements ReadableData<Pair<K, V>> {
 
   private final Map<TopicPartition, Pair<Long, Long>> offsets;
   private final Properties props;

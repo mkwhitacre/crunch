@@ -18,19 +18,16 @@
 package org.apache.crunch.kafka;
 
 
+import org.apache.crunch.DoFn;
 import org.apache.crunch.Pair;
 import org.apache.crunch.ReadableData;
 import org.apache.crunch.Source;
 import org.apache.crunch.TableSource;
-import org.apache.crunch.impl.mr.run.CrunchInputFormat;
 import org.apache.crunch.impl.mr.run.CrunchMapper;
 import org.apache.crunch.io.CrunchInputs;
-import org.apache.crunch.io.FileReaderFactory;
 import org.apache.crunch.io.FormatBundle;
 import org.apache.crunch.io.ReadableSource;
-import org.apache.crunch.io.impl.FileTableSourceImpl;
 import org.apache.crunch.kafka.inputformat.KafkaInputFormat;
-import org.apache.crunch.kafka.inputformat.KafkaUtils;
 import org.apache.crunch.types.Converter;
 import org.apache.crunch.types.PTableType;
 import org.apache.crunch.types.PType;
@@ -48,11 +45,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.Properties;
 
+/**
+ * A Kafka Source that will retrieve events from Kafka given start and end offsets.  The source is not designed to
+ * process unbounded data but instead to retrieve data between a specified range.
+ *
+ * The values retrieved by from Kafka are returned as raw bytes inside of a {@link BytesWritable}.  If callers
+ * need specific parsing logic based on the topic then consumers are encouraged to use multiple Kafka Sources
+ * for each topic and use special {@link DoFn} to parse the payload.
+ */
 public class KafkaSource
     implements TableSource<BytesWritable, BytesWritable>, ReadableSource<Pair<BytesWritable, BytesWritable>> {
 
@@ -62,10 +65,21 @@ public class KafkaSource
   private final Properties props;
   private final Map<TopicPartition, Pair<Long, Long>> offsets;
 
+  /**
+   * The consistent PType describing all of the data being retrieved from Kafka as a BytesWritable.
+   */
   private static PTableType<BytesWritable, BytesWritable> KAFKA_SOURCE_TYPE =
       Writables.tableOf(Writables.writables(BytesWritable.class), Writables.writables(BytesWritable.class));
 
 
+  /**
+   * Constructs a Kafka source that will read data from the Kafka cluster identified by the {@code kafkaConnectionProperties}
+   * and from the specific topics and partitions identified in the {@code offsets}
+   * @param kafkaConnectionProperties The connection properties for reading from Kafka.
+   * @param offsets A map of {@link TopicPartition} to a pair of start and end offsets respectively.  The start and end offsets
+   *                are evaluated at [start, end) where the ending offset is excluded.  Each TopicPartition must have a
+   *                non-null pair describing its offsets.
+   */
   public KafkaSource(Properties kafkaConnectionProperties, Map<TopicPartition, Pair<Long, Long>> offsets) {
     this.props = copyAndSetProperties(kafkaConnectionProperties);
 
@@ -136,7 +150,6 @@ public class KafkaSource
 
   @Override
   public Iterable<Pair<BytesWritable, BytesWritable>> read(Configuration conf) throws IOException {
-    //TODO how to close this out?
     Consumer<BytesWritable, BytesWritable> consumer = new KafkaConsumer<>(props);
     return new KafkaRecordsIterable<BytesWritable, BytesWritable>(consumer, offsets, props);
   }
@@ -161,11 +174,14 @@ public class KafkaSource
   }
 
 
+  /**
+   * Basic {@link Deserializer} which simply wraps the payload as a BytesWritable.
+   */
   public static class BytesDeserializer implements Deserializer<BytesWritable> {
 
     @Override
     public void configure(Map<String, ?> map, boolean b) {
-
+      //no-op
     }
 
     @Override
@@ -175,7 +191,7 @@ public class KafkaSource
 
     @Override
     public void close() {
-
+      //no-op
     }
   }
 }
