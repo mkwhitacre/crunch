@@ -127,6 +127,23 @@ public class KafkaInputFormatIT {
   }
 
   @Test
+  public void getSplitsSameStartEnd() throws IOException, InterruptedException {
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for(int i = 0; i < 10; i++) {
+      offsets.put(new TopicPartition(topic, i), Pair.of((long)i, (long)i));
+    }
+
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    KafkaInputFormat inputFormat = new KafkaInputFormat();
+    inputFormat.setConf(config);
+    List<InputSplit> splits = inputFormat.getSplits(null);
+
+    assertThat(splits.size(), is(0));
+  }
+
+  @Test
   public void getSplitsCreateReaders() throws IOException, InterruptedException {
     List<String> keys = ClusterTest.writeData(ClusterTest.getProducerProperties(), topic, "batch", 10, 10);
     Map<TopicPartition, Long> startOffsets = getBrokerOffsets(consumerProps, OffsetRequest.EarliestTime(), topic);
@@ -336,4 +353,55 @@ public class KafkaInputFormatIT {
       assertThat(valuePair, is(entry.getValue()));
     }
   }
+
+  @Test(expected=IllegalStateException.class)
+  public void getOffsetsFromConfigMissingStart() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    Set<String> topics = new HashSet<>();
+
+    int numPartitions = 10;
+    int numTopics = 10;
+    for (int j = 0; j < numTopics; j++) {
+      String topic = testName.getMethodName() + ".partitions" + j;
+      topics.add(topic);
+      for (int i = 0; i < numPartitions; i++) {
+        TopicPartition tAndP = new TopicPartition(topic, i);
+        offsets.put(tAndP, Pair.of((long) i, i * 10L));
+      }
+    }
+
+    Configuration config = new Configuration(false);
+
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    config.unset("org.apache.crunch.kafka.offsets.topic."+topics.iterator().next()+".partitions.0.start");
+
+    Map<TopicPartition, Pair<Long, Long>> returnedOffsets = KafkaInputFormat.getOffsets(config);
+  }
+
+  @Test(expected=IllegalStateException.class)
+  public void getOffsetsFromConfigMissingEnd() {
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    Set<String> topics = new HashSet<>();
+
+    int numPartitions = 10;
+    int numTopics = 10;
+    for (int j = 0; j < numTopics; j++) {
+      String topic = testName.getMethodName() + ".partitions" + j;
+      topics.add(topic);
+      for (int i = 0; i < numPartitions; i++) {
+        TopicPartition tAndP = new TopicPartition(topic, i);
+        offsets.put(tAndP, Pair.of((long) i, i * 10L));
+      }
+    }
+
+    Configuration config = new Configuration(false);
+
+    KafkaInputFormat.writeOffsetsToConfiguration(offsets, config);
+
+    config.unset("org.apache.crunch.kafka.offsets.topic."+topics.iterator().next()+".partitions.0.end");
+
+    Map<TopicPartition, Pair<Long, Long>> returnedOffsets = KafkaInputFormat.getOffsets(config);
+  }
+
 }

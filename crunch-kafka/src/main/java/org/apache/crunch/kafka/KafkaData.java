@@ -34,7 +34,7 @@ import java.util.Set;
 class KafkaData<K, V> implements ReadableData<Pair<K, V>> {
 
   private static final long serialVersionUID = -6582212311361579556L;
-  
+
   private final Map<TopicPartition, Pair<Long, Long>> offsets;
   private final Properties props;
 

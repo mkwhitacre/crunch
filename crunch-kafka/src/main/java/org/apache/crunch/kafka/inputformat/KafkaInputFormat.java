@@ -38,26 +38,57 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Basic input format for reading data from Kafka.  Data is read and maintained in its pure byte form and wrapped
+ * inside of a {@link BytesWritable} instance.
+ *
+ * Populating the configuration of the input format is handled with the convenience method of
+ * {@link #writeOffsetsToConfiguration(Map, Configuration)}.  This should be done to ensure
+ * the Kafka offset information is available when the input format {@link #getSplits(JobContext) creates its splits}
+ * and {@link #createRecordReader(InputSplit, TaskAttemptContext) readers}.
+ */
 public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> implements Configurable {
 
+  /**
+   * Constant for constructing configuration keys for the input format.
+   */
   private static final String KAFKA_INPUT_OFFSETS_BASE = "org.apache.crunch.kafka.offsets.topic";
+
+  /**
+   * Constant used for building configuration keys and specifying partitions.
+   */
   private static final String PARTITIONS = "partitions";
+
+  /**
+   * Constant used for building configuration keys and specifying the start of a partition.
+   */
   private static final String START = "start";
+
+  /**
+   * Constant used for building configuration keys and specifying the end of a partition.
+   */
   private static final String END = "end";
 
+  /**
+   * Regex to discover all of the defined partitions which should be consumed by the input format.
+   */
   private static final String TOPIC_KEY_REGEX = KAFKA_INPUT_OFFSETS_BASE + "\\..*\\." + PARTITIONS + "$";
 
-  private Map<TopicPartition, Pair<Long, Long>> offsets;
   private Configuration configuration;
 
   @Override
   public List<InputSplit> getSplits(JobContext jobContext) throws IOException, InterruptedException {
-    offsets = getOffsets(getConf());
+    Map<TopicPartition, Pair<Long, Long>> offsets = getOffsets(getConf());
     List<InputSplit> splits = new LinkedList<>();
     for (Map.Entry<TopicPartition, Pair<Long, Long>> entry : offsets.entrySet()) {
       TopicPartition topicPartition = entry.getKey();
-      splits.add(new KafkaInputSplit(topicPartition.topic(), topicPartition.partition(), entry.getValue().first(),
-          entry.getValue().second()));
+
+      long start = entry.getValue().first();
+      long end = entry.getValue().second();
+      if(start != end) {
+        splits.add(new KafkaInputSplit(topicPartition.topic(), topicPartition.partition(), entry.getValue().first(),
+            entry.getValue().second()));
+      }
     }
 
     return splits;
@@ -79,6 +110,16 @@ public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> 
     return configuration;
   }
 
+
+  //The following methods are used for reading and writing Kafka Partition offset information into Hadoop's Configuration
+  //objects and into Crunch's FormatBundle.  For a specific Kafka Topic it might have one or many partitions and for
+  //each partition it will need a start and end offset.  Assuming you have a topic of "abc" and it has 2 partitions the
+  //configuration would be populated with the following:
+  // org.apache.crunch.kafka.offsets.topic.abc.partitions = [0,1]
+  // org.apache.crunch.kafka.offsets.topic.abc.partitions.0.start = <partition start>
+  // org.apache.crunch.kafka.offsets.topic.abc.partitions.0.end = <partition end>
+  // org.apache.crunch.kafka.offsets.topic.abc.partitions.1.start = <partition start>
+  // org.apache.crunch.kafka.offsets.topic.abc.partitions.1.end = <partition end>
 
   /**
    * Writes the start and end offsets for the provided topic partitions to the {@code bundle}.
@@ -107,6 +148,8 @@ public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> 
    *
    * @param configuration the configuration to derive the data to read.
    * @return a map of {@link TopicPartition} to a pair of start and end offsets.
+   * @throws IllegalStateException if the {@code configuration} does not have the start and end offsets set properly
+   * for a partition.
    */
   public static Map<TopicPartition, Pair<Long, Long>> getOffsets(Configuration configuration) {
     Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
@@ -120,11 +163,15 @@ public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> 
       //for each partition find and add the start/end offset
       for (int partitionId : partitions) {
         TopicPartition topicPartition = new TopicPartition(topic, partitionId);
-        //TODO right now adding defaults but could error out because this should be set.
-        long start = configuration.getLong(generatePartitionStartKey(topic, partitionId),
-            kafka.api.OffsetRequest.EarliestTime());
+        long start = configuration.getLong(generatePartitionStartKey(topic, partitionId),Long.MIN_VALUE);
         long end = configuration.getLong(generatePartitionEndKey(topic, partitionId),
-            kafka.api.OffsetRequest.LatestTime());
+            Long.MIN_VALUE);
+
+        if(start == Long.MIN_VALUE || end == Long.MIN_VALUE){
+          throw new IllegalStateException("The "+topicPartition+ "has an invalid start:"+start+ " or end:"+end
+              +" offset configured.");
+        }
+
         offsets.put(topicPartition, Pair.of(start, end));
       }
     }
@@ -133,35 +180,36 @@ public class KafkaInputFormat extends InputFormat<BytesWritable, BytesWritable> 
   }
 
   private static Map<String, String> generateValues(Map<TopicPartition, Pair<Long, Long>> offsets) {
-    Map<String, String> values = new HashMap<>();
+    Map<String, String> offsetConfigValues = new HashMap<>();
     Map<String, Set<Integer>> topicsPartitions = new HashMap<>();
 
     for (Map.Entry<TopicPartition, Pair<Long, Long>> entry : offsets.entrySet()) {
       TopicPartition topicPartition = entry.getKey();
       String topic = topicPartition.topic();
-      String startKey = generatePartitionStartKey(topic, topicPartition.partition());
-      String endKey = generatePartitionEndKey(topic, topicPartition.partition());
+      int partition = topicPartition.partition();
+      String startKey = generatePartitionStartKey(topic, partition);
+      String endKey = generatePartitionEndKey(topic, partition);
       //Add the start and end offsets for a specific partition
-      values.put(startKey, Long.toString(entry.getValue().first()));
-      values.put(endKey, Long.toString(entry.getValue().second()));
+      offsetConfigValues.put(startKey, Long.toString(entry.getValue().first()));
+      offsetConfigValues.put(endKey, Long.toString(entry.getValue().second()));
 
       Set<Integer> partitions = topicsPartitions.get(topic);
       if (partitions == null) {
         partitions = new HashSet<>();
         topicsPartitions.put(topic, partitions);
       }
-      partitions.add(topicPartition.partition());
+      partitions.add(partition);
     }
 
     //generate the partitions values for each topic
     for (Map.Entry<String, Set<Integer>> entry : topicsPartitions.entrySet()) {
       String key = KAFKA_INPUT_OFFSETS_BASE + "." + entry.getKey() + "." + PARTITIONS;
       Set<Integer> partitions = entry.getValue();
-      String partitionsString = StringUtils.join(partitions.toArray(new Integer[partitions.size()]), ",");
-      values.put(key, partitionsString);
+      String partitionsString = StringUtils.join(partitions, ",");
+      offsetConfigValues.put(key, partitionsString);
     }
 
-    return values;
+    return offsetConfigValues;
   }
 
   static String generatePartitionStartKey(String topic, int partition) {
