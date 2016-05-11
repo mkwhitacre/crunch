@@ -31,12 +31,13 @@ import java.io.IOException;
  */
 public class KafkaInputSplit extends InputSplit implements Writable {
 
-  private String topic;
-  private int partition;
   private long startingOffset;
   private long endingOffset;
-  private transient TopicPartition topicPartition;
+  private TopicPartition topicPartition;
 
+  /**
+   * Nullary Constructor for creating the instance inside the Mapper instance.
+   */
   public KafkaInputSplit() {
 
   }
@@ -50,8 +51,6 @@ public class KafkaInputSplit extends InputSplit implements Writable {
    * @param endingOffset the end of the split
    */
   public KafkaInputSplit(String topic, int partition, long startingOffset, long endingOffset) {
-    this.topic = topic;
-    this.partition = partition;
     this.startingOffset = startingOffset;
     this.endingOffset = endingOffset;
     topicPartition = new TopicPartition(topic, partition);
@@ -64,37 +63,46 @@ public class KafkaInputSplit extends InputSplit implements Writable {
 
   @Override
   public String[] getLocations() throws IOException, InterruptedException {
-    //Leave empty since data locality not really an issues.
+    //Leave empty since data locality not really an issue.
     return new String[0];
   }
 
+  /**
+   * Returns the topic and partition for the split
+   * @return the topic and partition for the split
+   */
   public TopicPartition getTopicPartition() {
-    if (topicPartition == null) {
-      topicPartition = new TopicPartition(topic, partition);
-    }
     return topicPartition;
   }
 
+  /**
+   * Returns the starting offset for the split
+   * @return the starting offset for the split
+   */
   public long getStartingOffset() {
     return startingOffset;
   }
 
+  /**
+   * Returns the ending offset for the split
+   * @return the ending offset for the split
+   */
   public long getEndingOffset() {
     return endingOffset;
   }
 
   @Override
   public void write(DataOutput dataOutput) throws IOException {
-    dataOutput.writeUTF(topic);
-    dataOutput.writeInt(partition);
+    dataOutput.writeUTF(topicPartition.topic());
+    dataOutput.writeInt(topicPartition.partition());
     dataOutput.writeLong(startingOffset);
     dataOutput.writeLong(endingOffset);
   }
 
   @Override
   public void readFields(DataInput dataInput) throws IOException {
-    topic = dataInput.readUTF();
-    partition = dataInput.readInt();
+    String topic = dataInput.readUTF();
+    int partition = dataInput.readInt();
     startingOffset = dataInput.readLong();
     endingOffset = dataInput.readLong();
 
