@@ -26,8 +26,6 @@ import kafka.utils.VerifiableProperties;
 import org.apache.crunch.impl.mr.run.RuntimeParameters;
 import org.apache.crunch.kafka.inputformat.KafkaInputFormatIT;
 import org.apache.crunch.kafka.inputformat.KafkaRecordReaderIT;
-import org.apache.crunch.kafka.inputformat.KafkaUtils;
-import org.apache.crunch.kafka.inputformat.KafkaUtilsIT;
 import org.apache.crunch.kafka.utils.KafkaBrokerTestHarness;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;

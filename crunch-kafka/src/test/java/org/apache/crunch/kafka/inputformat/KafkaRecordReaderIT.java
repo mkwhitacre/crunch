@@ -41,7 +41,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
-import static org.apache.crunch.kafka.inputformat.KafkaUtils.getBrokerOffsets;
+import static org.apache.crunch.kafka.KafkaUtils.getBrokerOffsets;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertThat;

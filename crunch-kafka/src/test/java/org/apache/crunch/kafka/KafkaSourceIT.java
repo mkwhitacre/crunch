@@ -17,7 +17,6 @@
  */
 package org.apache.crunch.kafka;
 
-import com.sun.corba.se.spi.ior.Writeable;
 import kafka.api.OffsetRequest;
 import org.apache.crunch.MapFn;
 import org.apache.crunch.PCollection;
@@ -25,28 +24,21 @@ import org.apache.crunch.PTable;
 import org.apache.crunch.Pair;
 import org.apache.crunch.Pipeline;
 import org.apache.crunch.TableSource;
-import org.apache.crunch.fn.IdentityFn;
 import org.apache.crunch.impl.mr.MRPipeline;
-import org.apache.crunch.io.FormatBundle;
 import org.apache.crunch.io.From;
 import org.apache.crunch.io.To;
 import org.apache.crunch.test.TemporaryPath;
 import org.apache.crunch.types.avro.Avros;
-import org.apache.crunch.types.writable.Writables;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.BytesWritable;
-import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.Deserializer;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
-import org.mockito.Mock;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -55,7 +47,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
-import static org.apache.crunch.kafka.inputformat.KafkaUtils.getBrokerOffsets;
+import static org.apache.crunch.kafka.KafkaUtils.getBrokerOffsets;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertThat;

@@ -20,7 +20,6 @@ package org.apache.crunch.kafka;
 
 import kafka.api.OffsetRequest;
 import org.apache.crunch.Pair;
-import org.apache.crunch.kafka.inputformat.KafkaUtils;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -30,7 +29,6 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;

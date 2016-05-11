@@ -30,7 +30,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 
-import static org.apache.crunch.kafka.inputformat.KafkaUtils.getKafkaConnectionProperties;
+import static org.apache.crunch.kafka.KafkaUtils.getKafkaConnectionProperties;
 
 /**
  * A {@link RecordReader} for pulling data from Kafka.
