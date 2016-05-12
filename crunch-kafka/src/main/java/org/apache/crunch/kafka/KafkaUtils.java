@@ -45,6 +45,10 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 
+/**
+ * Simple utilities for retrieving offset and Kafka information to assist in setting up and configuring a
+ * {@link KafkaSource} instance.
+ */
 public class KafkaUtils {
 
   private static final Logger LOG = LoggerFactory.getLogger(KafkaUtils.class);
@@ -53,6 +57,11 @@ public class KafkaUtils {
 
   private static final Random RANDOM = new Random();
 
+  /**
+   * Converts the provided {@code config} into a {@link Properties} object to connect with Kafka.
+   * @param config the config to read properties
+   * @return a properties instance populated with all of the values inside the provided {@code config}.
+   */
   public static Properties getKafkaConnectionProperties(Configuration config) {
     Properties props = new Properties();
     for (Map.Entry<String, String> value : config) {
@@ -62,6 +71,12 @@ public class KafkaUtils {
     return props;
   }
 
+  /**
+   * Adds the {@code properties} to the provided {@code config} instance.
+   * @param properties the properties to add to the config.
+   * @param config the configuration instance to be modified.
+   * @return the config instance with the populated properties
+   */
   public static Configuration addKafkaConnectionProperties(Properties properties, Configuration config) {
     for (String name : properties.stringPropertyNames()) {
       config.set(name, properties.getProperty(name));
@@ -76,7 +91,7 @@ public class KafkaUtils {
    * @return a {@link TopicMetadataRequest} from the given topics
    * @throws IllegalArgumentException if topics is {@code null} or empty, or if any of the topics is null, empty or blank
    */
-  public static TopicMetadataRequest getTopicMetadataRequest(String... topics) {
+  private static TopicMetadataRequest getTopicMetadataRequest(String... topics) {
     if (topics == null)
       throw new IllegalArgumentException("topics cannot be null");
     if (topics.length == 0)
@@ -94,17 +109,18 @@ public class KafkaUtils {
    * Retrieves the offset values for an array of topics at the specified time.
    * </p>
    * <p>
-   * <p>
-   * If the Kafka does not have the logs for the partition at the specified time or if the topic did not exist at that time this
-   * will instead return the earliest offset for that partition.
+   * If the Kafka cluster does not have the logs for the partition at the specified time or if the topic did not exist
+   * at that time this will instead return the earliest offset for that partition.
    * </p>
    *
    * @param properties the properties containing the configuration for kafka
    * @param time       the time at which we want to know what the offset values were
    * @param topics     the topics we want to know the offset values of
    * @return the offset values for an array of topics at the specified time
-   * @throws IllegalArgumentException if consumer is {@code null} or if topics is {@code null} or empty or if any of
-   *                                  the topics are {@code null}, empty or blank
+   * @throws IllegalArgumentException if properties is {@code null} or if topics is {@code null} or empty or if any of
+   *                                  the topics are {@code null}, empty or blank, or if there is an error parsing the
+   *                                  properties.
+   * @throws IllegalStateException if there is an error communicating with the Kafka cluster to retrieve information.
    */
   public static Map<TopicPartition, Long> getBrokerOffsets(Properties properties, long time, String... topics) {
     if (properties == null)
@@ -265,7 +281,7 @@ public class KafkaUtils {
       try {
         brokers.add(new Broker(0, brokerHostPort[0], Integer.parseInt(brokerHostPort[1]), SecurityProtocol.PLAINTEXT));
       } catch (NumberFormatException e) {
-        throw new RuntimeException("Error parsing broker port : " + brokerHostPort[1], e);
+        throw new IllegalArgumentException("Error parsing broker port : " + brokerHostPort[1], e);
       }
     }
     return brokers;
