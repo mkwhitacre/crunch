@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -64,7 +65,7 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
   private final long scanPollTime;
 
   /**
-   * Creates the iterable that will pull values for a given {@code topic} using the provided {@code consumer} between
+   * Creates the iterable that will pull values for a collection of topics using the provided {@code consumer} between
    * the {@code startOffsets} and {@code stopOffsets}.
    * @param consumer The consumer for pulling the data from Kafka.  The consumer will be closed automatically once all
    *                 of the records have been consumed.
@@ -79,32 +80,37 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
     }
     this.consumer = consumer;
 
-    if (offsets == null) {
-      throw new IllegalArgumentException("The 'offsets' cannot 'null' or empty.");
-    }
-    this.offsets = offsets;
+
 
     if (properties == null) {
       throw new IllegalArgumentException("The 'properties' cannot be 'null'.");
     }
 
-    //check to make sure that based on the offsets there is data to retrieve, otherwise false.
-    //there will be data if the start offsets are less than stop offsets-1
-    if (offsets.isEmpty()) {
-      isEmpty = true;
-      LOG.warn("Iterable for Kafka for is empty because offsets are empty.");
-    } else {
-      boolean hasData = true;
-      for (Map.Entry<TopicPartition, Pair<Long, Long>> entry : offsets.entrySet()) {
-        Pair<Long, Long> value = entry.getValue();
-        //if start is less than one less than stop then there is data to be had
-        hasData &= value.first() < (value.second() - 1);
-      }
-      isEmpty = !hasData;
-      if (isEmpty) {
-        LOG.warn("Scan for Kafka is empty because start offsets are equal to or later than stop offsets");
+    if (offsets == null || offsets.isEmpty()) {
+      throw new IllegalArgumentException("The 'offsets' cannot 'null' or empty.");
+    }
+
+    //filter out any topics and partitions that do not have offset ranges that will produce data.
+    Map<TopicPartition, Pair<Long, Long>> filteredOffsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Pair<Long, Long>> entry : offsets.entrySet()) {
+      Pair<Long, Long> value = entry.getValue();
+      //if start is less than one less than stop then there is data to be had
+      if(value.first() < value.second()){
+        filteredOffsets.put(entry.getKey(), value);
+      }else{
+        LOG.debug("Removing offsets for {} because start is not less than the end offset.", entry.getKey());
       }
     }
+
+    //check to make sure that based on the offsets there is data to retrieve, otherwise false.
+    //there will be data if the start offsets are less than stop offsets
+    isEmpty = filteredOffsets.isEmpty();
+    if (isEmpty) {
+      LOG.warn("Iterable for Kafka for is empty because offsets are empty.");
+    }
+
+    //assign this
+    this.offsets = filteredOffsets;
 
     scanPollTime = Long.parseLong(properties.getProperty(KafkaRecordReader.CONSUMER_POLL_TIMEOUT_KEY,
         Long.toString(KafkaRecordReader.CONSUMER_POLL_TIMEOUT_DEFAULT)));

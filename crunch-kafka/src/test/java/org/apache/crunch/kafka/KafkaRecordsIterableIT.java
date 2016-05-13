@@ -119,16 +119,11 @@ public class KafkaRecordsIterableIT {
     new KafkaRecordsIterable<>(consumer, null, new Properties());
   }
 
-  @Test
+  @Test(expected=IllegalArgumentException.class)
   public void emptyOffsets() {
     consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
     Iterable<Pair<String, String>> data = new KafkaRecordsIterable<String, String>(consumer,
         Collections.<TopicPartition, Pair<Long, Long>>emptyMap(), new Properties());
-    int count = 0;
-    for (Pair<String, String> we : data) {
-      count++;
-    }
-    assertThat(count, is(0));
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -152,6 +147,36 @@ public class KafkaRecordsIterableIT {
       offsets.put(entry.getKey(), Pair.of(entry.getValue(), stopOffsets.get(entry.getKey())));
     }
 
+
+    Iterable<Pair<String, String>> data = new KafkaRecordsIterable<String, String>(consumer, offsets, new Properties());
+
+    int count = 0;
+    for (Pair<String, String> event : data) {
+      assertThat(keys, hasItem(event.first()));
+      assertTrue(keys.remove(event.first()));
+      count++;
+    }
+
+    assertThat(count, is(total));
+    assertThat(keys.size(), is(0));
+  }
+
+  @Test
+  public void iterateOverOneValue() {
+    consumer = new KafkaConsumer<String, String>(consumerProps, new ClusterTest.StringSerDe(), new ClusterTest.StringSerDe());
+    int loops = 1;
+    int numPerLoop = 1;
+    int total = loops * numPerLoop;
+    List<String> keys = writeData(props, topic, "batch", loops, numPerLoop);
+
+    startOffsets = getStartOffsets(props, topic);
+    stopOffsets = getStopOffsets(props, topic);
+
+    Map<TopicPartition, Pair<Long, Long>> offsets = new HashMap<>();
+    for (Map.Entry<TopicPartition, Long> entry : startOffsets.entrySet()) {
+      offsets.put(entry.getKey(), Pair.of(entry.getValue(), stopOffsets.get(entry.getKey())));
+      System.out.println(entry.getKey()+ "start:"+entry.getValue()+":end:"+stopOffsets.get(entry.getKey()));
+    }
 
     Iterable<Pair<String, String>> data = new KafkaRecordsIterable<String, String>(consumer, offsets, new Properties());
 
