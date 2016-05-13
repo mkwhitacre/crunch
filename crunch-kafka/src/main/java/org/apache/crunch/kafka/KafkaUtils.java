@@ -58,6 +58,17 @@ public class KafkaUtils {
   private static final Random RANDOM = new Random();
 
   /**
+   * Configuration property for the number of retry attempts that will be made to Kafka.
+   */
+  public static final String KAFKA_RETRY_ATTEMPTS_KEY = "org.apache.crunch.kafka.retry.attempts";
+
+  /**
+   * Default number of retry attempts.
+   */
+  public static final int KAFKA_RETRY_ATTEMPTS_DEFAULT = 5;
+  public static final String KAFKA_RETRY_ATTEMPTS_DEFAULT_STRING = Integer.toString(KAFKA_RETRY_ATTEMPTS_DEFAULT);
+
+  /**
    * Converts the provided {@code config} into a {@link Properties} object to connect with Kafka.
    * @param config the config to read properties
    * @return a properties instance populated with all of the values inside the provided {@code config}.

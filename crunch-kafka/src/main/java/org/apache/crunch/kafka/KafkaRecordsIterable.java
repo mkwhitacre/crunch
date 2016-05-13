@@ -23,6 +23,7 @@ import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.RetriableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +65,8 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
    */
   private final long scanPollTime;
 
+  private final int maxRetryAttempts;
+
   /**
    * Creates the iterable that will pull values for a collection of topics using the provided {@code consumer} between
    * the {@code startOffsets} and {@code stopOffsets}.
@@ -80,11 +83,13 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
     }
     this.consumer = consumer;
 
-
-
     if (properties == null) {
       throw new IllegalArgumentException("The 'properties' cannot be 'null'.");
     }
+
+    String retryString = properties.getProperty(KafkaUtils.KAFKA_RETRY_ATTEMPTS_KEY,
+        KafkaUtils.KAFKA_RETRY_ATTEMPTS_DEFAULT_STRING);
+    maxRetryAttempts = Integer.parseInt(retryString);
 
     if (offsets == null || offsets.isEmpty()) {
       throw new IllegalArgumentException("The 'offsets' cannot 'null' or empty.");
@@ -132,7 +137,7 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
       consumer.seek(entry.getKey(), entry.getValue().first());
     }
 
-    return new RecordsIterator<K, V>(consumer, offsets, scanPollTime);
+    return new RecordsIterator<K, V>(consumer, offsets, scanPollTime, maxRetryAttempts);
   }
 
   private static class RecordsIterator<K, V> implements Iterator<Pair<K, V>> {
@@ -140,6 +145,7 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
     private final Consumer<K, V> consumer;
     private final Map<TopicPartition, Pair<Long, Long>> offsets;
     private final long pollTime;
+    private final int maxNumAttempts;
     private ConsumerRecords<K, V> records;
     private Iterator<ConsumerRecord<K, V>> currentIterator;
     private final Set<TopicPartition> remainingPartitions;
@@ -147,11 +153,12 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
     private Pair<K, V> next;
 
     public RecordsIterator(Consumer<K, V> consumer,
-                           Map<TopicPartition, Pair<Long, Long>> offsets, long pollTime) {
+                           Map<TopicPartition, Pair<Long, Long>> offsets, long pollTime, int maxNumRetries) {
       this.consumer = consumer;
       remainingPartitions = new HashSet<>(offsets.keySet());
       this.offsets = offsets;
       this.pollTime = pollTime;
+      this.maxNumAttempts = maxNumRetries;
     }
 
     @Override
@@ -200,7 +207,22 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
           return currentIterator;
         }
         LOG.debug("Retrieving next set of records.");
-        records = consumer.poll(pollTime);
+        int numTries = 0;
+        boolean notSuccess = false;
+        while(!notSuccess && numTries < maxNumAttempts) {
+          try {
+            records = consumer.poll(pollTime);
+            notSuccess = true;
+          }catch(RetriableException re){
+            numTries++;
+            if(numTries < maxNumAttempts) {
+              LOG.warn("Error pulling messages from Kafka. Retrying with attempt {}", numTries, re);
+            }else{
+              LOG.error("Error pulling messages from Kafka. Exceeded maximum number of attempts {}", maxNumAttempts, re);
+              throw re;
+            }
+          }
+        }
         if (records == null || records.isEmpty()) {
           LOG.debug("Retrieved empty records.");
           currentIterator = null;
@@ -225,14 +247,14 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
 
         while (iterator != null && iterator.hasNext()) {
           ConsumerRecord<K, V> record = iterator.next();
-          TopicPartition tP = new TopicPartition(record.topic(), record.partition());
+          TopicPartition topicPartition = new TopicPartition(record.topic(), record.partition());
           long offset = record.offset();
 
-          if (withInRange(tP, offset)) {
-            LOG.debug("Retrieving value for {} with offset {}.", tP, offset);
+          if (withinRange(topicPartition, offset)) {
+            LOG.debug("Retrieving value for {} with offset {}.", topicPartition, offset);
             return Pair.of(record.key(), record.value());
           }
-          LOG.debug("Value for {} with offset {} is outside of range skipping.", tP, offset);
+          LOG.debug("Value for {} with offset {} is outside of range skipping.", topicPartition, offset);
         }
       }
 
@@ -252,7 +274,7 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
      * @param offset the offset in the partition
      * @return {@code true} if the value is within the expected consumption range, otherwise {@code false}.
      */
-    private boolean withInRange(TopicPartition topicPartion, long offset) {
+    private boolean withinRange(TopicPartition topicPartion, long offset) {
       long endOffset = offsets.get(topicPartion).second();
       //end offsets are one higher than the last written value.
       boolean emit = offset < endOffset;
