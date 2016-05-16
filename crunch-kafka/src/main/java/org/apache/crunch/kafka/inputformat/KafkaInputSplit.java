@@ -58,6 +58,7 @@ public class KafkaInputSplit extends InputSplit implements Writable {
 
   @Override
   public long getLength() throws IOException, InterruptedException {
+    // This is just used as a hint for size of bytes so it is already inaccurate.
     return startingOffset > 0 ? endingOffset - startingOffset : endingOffset;
   }
 

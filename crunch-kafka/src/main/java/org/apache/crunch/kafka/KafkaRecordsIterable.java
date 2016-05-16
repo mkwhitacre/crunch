@@ -117,8 +117,8 @@ class KafkaRecordsIterable<K, V> implements Iterable<Pair<K, V>> {
     //assign this
     this.offsets = filteredOffsets;
 
-    scanPollTime = Long.parseLong(properties.getProperty(KafkaRecordReader.CONSUMER_POLL_TIMEOUT_KEY,
-        Long.toString(KafkaRecordReader.CONSUMER_POLL_TIMEOUT_DEFAULT)));
+    scanPollTime = Long.parseLong(properties.getProperty(KafkaSource.CONSUMER_POLL_TIMEOUT_KEY,
+        Long.toString(KafkaSource.CONSUMER_POLL_TIMEOUT_DEFAULT)));
   }
 
   @Override

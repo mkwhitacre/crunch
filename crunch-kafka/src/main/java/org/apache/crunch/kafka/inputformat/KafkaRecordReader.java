@@ -17,6 +17,7 @@
  */
 package org.apache.crunch.kafka.inputformat;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
@@ -25,12 +26,19 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.RetriableException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 
+import static org.apache.crunch.kafka.KafkaUtils.KAFKA_RETRY_ATTEMPTS_DEFAULT;
+import static org.apache.crunch.kafka.KafkaUtils.KAFKA_RETRY_ATTEMPTS_KEY;
 import static org.apache.crunch.kafka.KafkaUtils.getKafkaConnectionProperties;
+import static org.apache.crunch.kafka.KafkaSource.CONSUMER_POLL_TIMEOUT_DEFAULT;
+import static org.apache.crunch.kafka.KafkaSource.CONSUMER_POLL_TIMEOUT_KEY;
 
 /**
  * A {@link RecordReader} for pulling data from Kafka.
@@ -39,21 +47,16 @@ import static org.apache.crunch.kafka.KafkaUtils.getKafkaConnectionProperties;
  */
 public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
-  /**
-   * Constant to indicate how long the reader wait before timing out when retrieving data from Kafka.
-   */
-  public static final String CONSUMER_POLL_TIMEOUT_KEY = "org.apache.crunch.kafka.consumer.poll.timeout";
-
-  /**
-   * Default timeout value for {@link #CONSUMER_POLL_TIMEOUT_KEY} of 1 second.
-   */
-  public static final long CONSUMER_POLL_TIMEOUT_DEFAULT = 1000L;
+  private static final Logger LOG = LoggerFactory.getLogger(KafkaRecordReader.class);
 
   private Consumer<K, V> consumer;
   private ConsumerRecord<K, V> record;
   private long endingOffset;
   private Iterator<ConsumerRecord<K, V>> recordIterator;
   private long consumerPollTimeout;
+  private long maxNumberOfRecords;
+  private long startingOffset;
+  private int maxNumberAttempts;
 
   @Override
   public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext) throws IOException, InterruptedException {
@@ -64,11 +67,16 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
     //suggested hack to gather info without gathering data
     consumer.poll(0);
     //now seek to the desired start location
-    consumer.seek(topicPartition, split.getStartingOffset());
+    startingOffset = split.getStartingOffset();
+    consumer.seek(topicPartition,startingOffset);
+
     endingOffset = split.getEndingOffset();
 
-    consumerPollTimeout = taskAttemptContext.getConfiguration()
-        .getLong(CONSUMER_POLL_TIMEOUT_KEY, CONSUMER_POLL_TIMEOUT_DEFAULT);
+    maxNumberOfRecords = endingOffset - split.getStartingOffset();
+
+    Configuration config = taskAttemptContext.getConfiguration();
+    consumerPollTimeout = config.getLong(CONSUMER_POLL_TIMEOUT_KEY, CONSUMER_POLL_TIMEOUT_DEFAULT);
+    maxNumberAttempts = config.getInt(KAFKA_RETRY_ATTEMPTS_KEY, KAFKA_RETRY_ATTEMPTS_DEFAULT);
   }
 
   @Override
@@ -80,24 +88,39 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
   @Override
   public K getCurrentKey() throws IOException, InterruptedException {
-    return record.key();
+    return record == null ? null : record.key();
   }
 
   @Override
   public V getCurrentValue() throws IOException, InterruptedException {
-    return record.value();
+    return record == null ? null : record.value();
   }
 
   @Override
   public float getProgress() throws IOException, InterruptedException {
     //not most accurate but gives reasonable estimate
-    return record == null ? 0.0f : record.offset() / endingOffset;
+    return record == null ? 0.0f : ((float) (record.offset()- startingOffset)) / maxNumberOfRecords;
   }
 
   private Iterator<ConsumerRecord<K, V>> getRecords() {
     if (recordIterator == null || !recordIterator.hasNext()) {
       ConsumerRecords<K, V> records = null;
-      records = consumer.poll(consumerPollTimeout);
+      int numTries = 0;
+      boolean notSuccess = false;
+      while(!notSuccess && numTries < maxNumberAttempts) {
+        try {
+          records = consumer.poll(consumerPollTimeout);
+          notSuccess = true;
+        } catch (RetriableException re) {
+          numTries++;
+          if (numTries < maxNumberAttempts) {
+            LOG.warn("Error pulling messages from Kafka. Retrying with attempt {}", numTries, re);
+          } else {
+            LOG.error("Error pulling messages from Kafka. Exceeded maximum number of attempts {}", maxNumberAttempts, re);
+            throw re;
+          }
+        }
+      }
       return records != null ? records.iterator() : ConsumerRecords.<K, V>empty().iterator();
     }
     return recordIterator;
@@ -105,6 +128,8 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
   @Override
   public void close() throws IOException {
-    consumer.close();
+    if(consumer != null) {
+      consumer.close();
+    }
   }
 }

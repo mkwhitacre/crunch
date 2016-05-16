@@ -74,6 +74,16 @@ public class KafkaSource
   private static PTableType<BytesWritable, BytesWritable> KAFKA_SOURCE_TYPE =
       Writables.tableOf(Writables.writables(BytesWritable.class), Writables.writables(BytesWritable.class));
 
+  /**
+   * Constant to indicate how long the reader waits before timing out when retrieving data from Kafka.
+   */
+  public static final String CONSUMER_POLL_TIMEOUT_KEY = "org.apache.crunch.kafka.consumer.poll.timeout";
+
+  /**
+   * Default timeout value for {@link #CONSUMER_POLL_TIMEOUT_KEY} of 1 second.
+   */
+  public static final long CONSUMER_POLL_TIMEOUT_DEFAULT = 1000L;
+
 
   /**
    * Constructs a Kafka source that will read data from the Kafka cluster identified by the {@code kafkaConnectionProperties}
@@ -186,6 +196,8 @@ public class KafkaSource
 
   @Override
   public ReadableData<Pair<BytesWritable, BytesWritable>> asReadable() {
+    // skip using the inputformat/splits since this will be read in a single JVM and don't need the complexity
+    // of parallelism when reading.
     return new KafkaData<>(props, offsets);
   }
 

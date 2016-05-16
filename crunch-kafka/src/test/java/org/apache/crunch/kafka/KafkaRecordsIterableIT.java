@@ -25,6 +25,8 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.RetriableException;
+import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -314,6 +316,47 @@ public class KafkaRecordsIterableIT {
   }
 
   @Test
+  public void iterateValuesWithExceptions() {
+    List<ConsumerRecord<String, String>> returnedRecords = new LinkedList<>();
+
+    for(int i = 0; i < 25; i++){
+      returnedRecords.add(new ConsumerRecord<String, String>(topic, 0, i, "key", null));
+      returnedRecords.add(new ConsumerRecord<String, String>(topic, 1, i, "key", null));
+      returnedRecords.add(new ConsumerRecord<String, String>(topic, 2, i, "key", null));
+      returnedRecords.add(new ConsumerRecord<String, String>(topic, 3, i, "key", null));
+    }
+
+    offsets = new HashMap<>();
+    offsets.put(new TopicPartition(topic, 0), Pair.of(0L, 25L));
+    offsets.put(new TopicPartition(topic, 1), Pair.of(0L, 25L));
+    offsets.put(new TopicPartition(topic, 2), Pair.of(0L, 25L));
+    offsets.put(new TopicPartition(topic, 3), Pair.of(0L, 25L));
+
+    when(records.isEmpty()).thenReturn(false);
+    when(records.iterator()).thenReturn(returnedRecords.iterator());
+    when(mockedConsumer.poll(Matchers.anyLong()))
+        //request for the first poll
+        .thenReturn(null)
+        //fail twice
+        .thenThrow(new TimeoutException("fail1"))
+        .thenThrow(new TimeoutException("fail2"))
+        //request that will give data
+        .thenReturn(records)
+        // shows to stop retrieving data
+        .thenReturn(null);
+
+    Iterable<Pair<String, String>> data = new KafkaRecordsIterable<>(mockedConsumer, offsets, new Properties());
+
+    int count = 0;
+    for (Pair<String, String> event : data) {
+      count++;
+    }
+
+    //should have gotten one value per topicpartition
+    assertThat(count, is(returnedRecords.size()));
+  }
+
+  @Test
   public void iterateValuesAfterStopOffsets() {
     List<ConsumerRecord<String, String>> returnedRecords = new LinkedList<>();
     for (Map.Entry<TopicPartition, Long> entry : stopOffsets.entrySet()) {
@@ -334,6 +377,32 @@ public class KafkaRecordsIterableIT {
 
     assertThat(count, is(0));
 
+  }
+
+  @Test(expected = RetriableException.class)
+  public void iterateRetriableExceptionMaxExceeded() {
+    List<ConsumerRecord<String, String>> returnedRecords = new LinkedList<>();
+    for (Map.Entry<TopicPartition, Long> entry : stopOffsets.entrySet()) {
+      returnedRecords.add(new ConsumerRecord<String, String>(entry.getKey().topic(),
+          entry.getKey().partition(), entry.getValue() + 1, "key", null));
+    }
+
+    when(records.isEmpty()).thenReturn(false);
+    when(records.iterator()).thenReturn(returnedRecords.iterator());
+    when(mockedConsumer.poll(Matchers.anyLong()))
+        //for the fill poll call
+        .thenReturn(null)
+        //retry 5 times then fail
+        .thenThrow(new TimeoutException("fail1"))
+        .thenThrow(new TimeoutException("fail2"))
+        .thenThrow(new TimeoutException("fail3"))
+        .thenThrow(new TimeoutException("fail4"))
+        .thenThrow(new TimeoutException("fail5"))
+        .thenThrow(new TimeoutException("fail6"));
+
+    Iterable<Pair<String, String>> data = new KafkaRecordsIterable<>(mockedConsumer, offsets, new Properties());
+
+    data.iterator().next();
   }
 
   private static Map<TopicPartition, Long> getStopOffsets(Properties props, String topic) {
