@@ -73,6 +73,9 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
     endingOffset = split.getEndingOffset();
 
     maxNumberOfRecords = endingOffset - split.getStartingOffset();
+    if(LOG.isInfoEnabled()) {
+      LOG.info("Reading data from {} between {} and {}", new Object[]{topicPartition, startingOffset, endingOffset});
+    }
 
     Configuration config = taskAttemptContext.getConfiguration();
     consumerPollTimeout = config.getLong(CONSUMER_POLL_TIMEOUT_KEY, CONSUMER_POLL_TIMEOUT_DEFAULT);
@@ -83,6 +86,13 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
   public boolean nextKeyValue() throws IOException, InterruptedException {
     recordIterator = getRecords();
     record = recordIterator.hasNext() ? recordIterator.next() : null;
+    if(LOG.isDebugEnabled()){
+      if(record != null) {
+        LOG.debug("nextKeyValue: Retrieved record with offset {}", record.offset());
+      }else{
+        LOG.debug("nextKeyValue: Retrieved null record");
+      }
+    }
     return record != null && record.offset() < endingOffset;
   }
 
@@ -121,6 +131,12 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
           }
         }
       }
+
+      if(LOG.isDebugEnabled() && records != null){
+        LOG.debug("No records retrieved from Kafka therefore nothing to iterate over.");
+      }else{
+        LOG.debug("Retrieved records from Kafka to iterate over.");
+      }
       return records != null ? records.iterator() : ConsumerRecords.<K, V>empty().iterator();
     }
     return recordIterator;
@@ -128,6 +144,7 @@ public class KafkaRecordReader<K, V> extends RecordReader<K, V> {
 
   @Override
   public void close() throws IOException {
+    LOG.debug("Closing the record reader.");
     if(consumer != null) {
       consumer.close();
     }
